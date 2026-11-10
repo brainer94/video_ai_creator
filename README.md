@@ -4,35 +4,6 @@ Video AI Creator adalah aplikasi desktop untuk membuat video berbasis adegan. Pe
 
 Aplikasi ini juga menyediakan bantuan Gemini untuk menyusun prompt, pembuatan suara, pembuatan gambar, penggabungan video, serta pengelolaan model dan LoRA melalui ComfyUI.
 
-## Kebutuhan
-
-Siapkan hal-hal berikut sebelum memasang aplikasi:
-
-- Windows 10/11 atau Linux desktop;
-- Git untuk mengambil source project;
-- Python 3.12 atau versi Python yang kompatibel dengan `requirements.txt`;
-- FFmpeg dan FFprobe untuk pengolahan video dan audio;
-- ComfyUI yang sudah berjalan dan dapat diakses dari komputer tempat aplikasi ini dijalankan;
-- koneksi internet saat memasang dependency, memakai Gemini, atau mengunduh model;
-- ruang penyimpanan yang cukup untuk model, LoRA, aset, dan hasil video.
-
-File `requirements.txt` memasang komponen Python untuk:
-
-- antarmuka desktop: PySide6;
-- komunikasi HTTP dan API: Requests serta Tenacity;
-- pengolahan gambar dan video: Pillow, NumPy, OpenCV, ImageIO, MoviePy, dan ImageIO-FFmpeg;
-- transkripsi dan caption: Faster-Whisper;
-- tampilan progres dan koneksi pendukung: TQDM dan WebSocket Client.
-
-FFmpeg tetap harus dipasang sebagai program sistem karena dipakai langsung untuk menggabungkan video, memproses audio, mengambil frame, dan membaca informasi media. ComfyUI bukan bagian dari `requirements.txt`; ComfyUI dipasang dan dijalankan terpisah.
-
-Kebutuhan GPU, driver NVIDIA, CUDA, dan VRAM mengikuti model yang dipakai di ComfyUI. Video AI Creator dapat dibuka tanpa GPU, tetapi proses generasi ComfyUI biasanya membutuhkan GPU yang sesuai.
-
-Fitur berikut memerlukan Gemini API key:
-
-- `Buat Prompt`;
-- pembuatan suara Gemini;
-- pembuatan gambar Gemini.
 
 ## Instalasi Windows
 
@@ -78,11 +49,9 @@ ffprobe -version
 Clone repository project, lalu masuk ke foldernya:
 
 ```powershell
-git clone <URL_REPOSITORY_PROJECT>
+git clone https://github.com/brainer94/video_ai_creator.git
 cd video_ai_creator
 ```
-
-Jika menerima project dalam bentuk ZIP, ekstrak ZIP tersebut lalu buka PowerShell di folder `video_ai_creator`.
 
 ### 5. Buat virtual environment dan pasang dependency
 
@@ -100,15 +69,15 @@ Jika PowerShell menolak menjalankan `Activate.ps1`, gunakan Python dari virtual 
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-### 6. Masukkan Gemini API key
+### 6. (Opsional) Siapkan Gemini
 
-Buat file `keys.cfg` di folder utama project:
+Lewati langkah ini jika tidak ingin memakai fitur Gemini. Jika ingin memakainya, buat file `keys.cfg` di folder utama project:
 
 ```ini
 GEMINIKEY=isi_api_key_gemini_di_sini
 ```
 
-Jangan membagikan atau mengunggah file tersebut. File `keys.cfg` sudah dikecualikan dari Git.
+Ganti nilai contoh dengan Gemini API key yang aktif. Jangan membagikan atau mengunggah file tersebut. File `keys.cfg` sudah dikecualikan dari Git.
 
 ### 7. Jalankan aplikasi
 
@@ -149,7 +118,7 @@ Python 3.12 direkomendasikan. Jika `python3` pada distribusi Linux terlalu lama,
 ### 2. Ambil project
 
 ```bash
-git clone <URL_REPOSITORY_PROJECT>
+git clone https://github.com/brainer94/video_ai_creator.git
 cd video_ai_creator
 ```
 
@@ -164,15 +133,15 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-### 4. Masukkan Gemini API key
+### 4. (Opsional) Siapkan Gemini
 
-Buat file `keys.cfg` di folder utama project:
+Lewati langkah ini jika tidak ingin memakai fitur Gemini. Jika ingin memakainya, buat file `keys.cfg` di folder utama project:
 
 ```ini
 GEMINIKEY=isi_api_key_gemini_di_sini
 ```
 
-Jangan memasukkan file tersebut ke repository atau membagikannya kepada orang lain.
+Ganti nilai contoh dengan Gemini API key yang aktif. Jangan memasukkan file tersebut ke repository atau membagikannya kepada orang lain.
 
 ### 5. Jalankan aplikasi
 
@@ -189,9 +158,33 @@ chmod +x run_ui.sh
 ./run_ui.sh
 ```
 
+## Menyusun project tanpa ComfyUI
+
+ComfyUI tidak harus dijalankan sejak awal. Anda dapat membuka Video AI Creator terlebih dahulu untuk membuat project, membuat scene, menambahkan aset, mengatur durasi, dan menyusun prompt melalui editor interaktif.
+
+Saat ComfyUI belum aktif, fungsi berikut tetap dapat digunakan:
+
+- membuat dan mengatur project serta scene;
+- menulis dan menyimpan prompt secara manual;
+- memakai `Buat Prompt` jika Gemini API key tersedia;
+- membuat voice Gemini jika Gemini API key dan FFmpeg tersedia;
+- membuat gambar Gemini jika Gemini API key tersedia;
+- mengatur referensi image, audio, video, LoRA, dan konfigurasi scene;
+- menyimpan serta memvalidasi rancangan scene.
+
+ComfyUI baru diperlukan ketika Anda ingin:
+
+- mengunduh model atau LoRA;
+- memperbarui daftar LoRA dari ComfyUI;
+- membuat gambar dengan Z Image, Flux 2, atau Qwen melalui ComfyUI;
+- menjalankan satu atau beberapa scene video;
+- melihat Log ComfyUI.
+
+Alur yang disarankan adalah membuat project dan menyelesaikan sebagian besar rancangan terlebih dahulu. Setelah itu, jalankan ComfyUI lokal atau Vast.ai, hubungkan melalui `Konfigurasi Umum`, unduh model yang diperlukan, lalu jalankan proses generasi video. Jika ComfyUI belum aktif saat aplikasi dibuka, aplikasi hanya menampilkan status pemeriksaan pada `Log Proses` dan tetap dapat dipakai untuk menyusun project.
+
 ## Koneksi ke ComfyUI
 
-Video AI Creator tidak menjalankan atau menghentikan instance Vast.ai. ComfyUI harus sudah dijalankan terlebih dahulu, kemudian alamatnya dimasukkan melalui tombol **Konfigurasi Umum**.
+Jalankan ComfyUI, kemudian alamatnya dimasukkan melalui tombol **Konfigurasi Umum**.
 
 Pada dialog tersebut:
 
@@ -206,7 +199,7 @@ Alamat dapat berupa `host:port` atau URL lengkap `http://` / `https://`.
 ### A. ComfyUI lokal
 
 1. Pasang ComfyUI mengikuti panduan resmi di [repository ComfyUI](https://github.com/comfyanonymous/ComfyUI).
-2. Jalankan ComfyUI pada komputer yang sama dengan Video AI Creator.
+2. Jalankan ComfyUI pada komputer yang sama dengan Video AI Creator atau komputer lain yang terhubung melalui LAN.
 3. Pastikan halaman ComfyUI dapat dibuka di browser, biasanya melalui:
 
    ```text
@@ -225,52 +218,89 @@ Setelah koneksi berhasil, aplikasi akan memeriksa ComfyUI-Model-Manager, model, 
 
 ### B. ComfyUI di Vast.ai
 
-1. Buat atau jalankan instance ComfyUI melalui console Vast.ai.
-2. Tunggu sampai ComfyUI benar-benar selesai dijalankan.
-3. Buka bagian **Advanced Connection Options** pada instance.
-4. Salin URL koneksi ComfyUI dari tombol **Copy URL**. Pilih URL yang membuka tampilan ComfyUI, bukan URL Jupyter Terminal atau dokumentasi API wrapper.
-5. Jika URL memiliki token, salin URL lengkap beserta bagian `?token=...`.
-6. Tempel URL lengkap tersebut pada `URL ComfyUI` di **Konfigurasi Umum**.
-7. Tekan `Simpan & Periksa` dan baca hasilnya pada `Log Proses`.
+#### 1. Siapkan metode pembayaran dan saldo
 
-Contoh bentuk URL tunnel:
+Buka menu **Billing** di Vast.ai. Gunakan tombol **Add Card** untuk menambahkan metode pembayaran. Vast.ai dapat menggunakan PayPal, kartu kredit, atau kartu debit.
 
-```text
-https://contoh-subdomain.trycloudflare.com/?token=TOKEN_DARI_VAST
-```
+![Halaman Billing Vast.ai](docs/images/vastai-billing.png)
 
-Jangan menghapus token dari URL. Login pada browser Vast.ai tidak otomatis memberikan akses API kepada aplikasi desktop, sehingga aplikasi harus memakai URL koneksi yang sudah membawa token atau autentikasi yang disediakan oleh instance.
+Setelah metode pembayaran tersedia, tekan **Add Credit** untuk menambahkan saldo. Minimal satu kali top up adalah **$5**.
 
-Jika Vast.ai memberikan alamat IP dan port publik, alamat tersebut juga dapat digunakan, misalnya:
+#### 2. Buka menu Instances dan buat instance
 
-```text
-http://ALAMAT_IP:PORT_PUBLIK
-```
+Setelah saldo masuk, buka menu **Instances**, kemudian tekan **Create Instance**.
 
-Pastikan port tersebut memang diarahkan ke port ComfyUI dan dapat dibuka dari komputer pengguna. URL Jupyter Terminal, URL `/docs` milik API wrapper, dan port yang tidak diarahkan ke ComfyUI tidak dapat digunakan sebagai URL ComfyUI.
+![Tombol Create Instance Vast.ai](docs/images/vastai-create-instance.png)
+
+#### 3. Pilih template dan spesifikasi instance
+
+Pada halaman pencarian instance:
+
+- ganti template menjadi **ComfyUI**;
+- atur **Container Size** minimal **128 GB**;
+- pilih GPU dengan VRAM minimal **16 GB**;
+- pilih instance dengan RAM minimal **64 GB** agar proses pembuatan video lebih lancar;
+- secara opsional, pilih koneksi internet dengan kecepatan download sekitar **1000 Mbps atau lebih** agar pengunduhan model lebih cepat.
+
+![Pencarian instance ComfyUI di Vast.ai](docs/images/vastai-search-instance.png)
+
+#### 4. Periksa harga lalu tekan RENT
+
+Sorot bagian harga pada instance yang akan dipilih untuk membuka rincian biaya. Periksa biaya GPU per jam, storage, dan internet.
+
+![Rincian harga instance Vast.ai](docs/images/vastai-detail-instance.png)
+
+Usahakan biaya internet tidak lebih dari **$4 per TB** untuk download maupun upload. Harga di atas batas tersebut perlu dipertimbangkan dengan hati-hati karena pengunduhan model dapat mencapai sekitar **100 GB** dan membuat biaya internet membengkak.
+
+Jika rincian biaya sudah sesuai, tekan tombol **RENT**.
+
+#### 5. Tunggu sampai instance siap
+
+Buka menu **Instances** dan tunggu sampai instance berstatus siap. Instance dapat digunakan ketika tombol **Open** sudah muncul. Tekan tombol **Open**.
+
+![Instance Vast.ai siap digunakan](docs/images/vastai-instance-ready.png)
+
+#### 6. Salin URL Quick Tunnel ComfyUI
+
+Pada portal instance, buka **Advanced Connection Options** pada kartu **ComfyUI**. Kemudian tekan **Copy URL** yang berada di sebelah **Quick Tunnel**.
+
+![Advanced Connection Options ComfyUI di Vast.ai](docs/images/vastai-quich-tunnel-instance.png)
+
+Jangan menggunakan URL Jupyter Terminal atau API Wrapper. Jika URL yang disalin memiliki token, salin URL lengkap beserta bagian `?token=...`.
+
+#### 7. Hubungkan aplikasi ke ComfyUI
+
+Buka Video AI Creator, kemudian buka **Konfigurasi Umum**. Tempel URL yang disalin ke kolom `URL ComfyUI`, lalu tekan **Simpan & Periksa**.
+
+![Dialog Konfigurasi Umum Video AI Creator](docs/images/konfiguras-umum.png)
+
+Pantau hasil pemeriksaan melalui **Log Proses**. Setelah koneksi berhasil, model dan LoRA dapat dikelola melalui dialog yang sama.
 
 Pengguna tetap mengatur siklus hidup instance melalui console Vast.ai. Setelah koneksi berhasil, model dan LoRA dapat dikelola dari **Konfigurasi Umum** tanpa SSH. ComfyUI-Model-Manager akan diperiksa dan dipasang bila diperlukan oleh aplikasi.
 
-## Alur penggunaan pertama
+#### 8. Hancurkan instance setelah selesai
 
-1. Jalankan ComfyUI lokal atau Vast.ai.
-2. Jalankan Video AI Creator.
-3. Buka **Konfigurasi Umum** dan masukkan URL ComfyUI.
-4. Unduh model yang diperlukan.
-5. Buat project baru.
-6. Buat atau pilih adegan.
-7. Tambahkan gambar, audio, atau video referensi bila diperlukan.
-8. Tulis prompt pada editor interaktif. Tombol `Buat Prompt` tersedia sebagai bantuan Gemini.
-9. Simpan adegan, lalu tekan `Jalankan Adegan` atau `Jalankan Beberapa Adegan`.
-10. Pantau kegiatan ComfyUI melalui `Log ComfyUI` dan kegiatan aplikasi melalui `Log Proses`.
+Setelah selesai menggunakan ComfyUI, kembali ke menu **Instances** di Vast.ai dan tekan **Destroy your instance**. Langkah ini penting agar billing instance berhenti.
 
-## Bantuan dan masalah umum
+![Tombol Destroy Instance Vast.ai](docs/images/vastai-destroy-instance.png)
 
-- Jika aplikasi tidak dapat terhubung, buka **Konfigurasi Umum** dan periksa kembali URL ComfyUI.
-- Jika ComfyUI belum berjalan, jalankan ComfyUI terlebih dahulu lalu simpan ulang konfigurasi.
-- Jika model belum tersedia, gunakan `Download Model` dan tunggu sampai proses selesai.
-- Jika LoRA belum muncul, pastikan pengunduhan selesai lalu perbarui pemeriksaan pada **Konfigurasi Umum**.
-- Jika fitur Gemini gagal, periksa isi `keys.cfg` dan pastikan API key masih aktif.
-- Jika pembuatan video gagal, buka `Log ComfyUI` untuk pesan dari ComfyUI dan `Log Proses` untuk langkah aplikasi.
+## Gemini (opsional)
 
-Panduan penggunaan setiap tampilan tersedia melalui tombol **Bantuan** pada menu aplikasi.
+Gemini bukan syarat untuk menjalankan aplikasi. Tanpa Gemini API key, aplikasi tetap dapat digunakan untuk mengelola project dan scene, memakai ComfyUI, membuat gambar melalui model ComfyUI, mengunduh model dan LoRA, serta menggabungkan video dan audio.
+
+Jika ingin memakai fitur Gemini, buat file `keys.cfg` di folder utama project dengan isi berikut:
+
+```ini
+GEMINIKEY=isi_api_key_gemini_di_sini
+```
+
+Ganti nilai contoh tersebut dengan Gemini API key yang aktif. Jangan menambahkan tanda kutip, jangan membagikan file ini, dan jangan mengunggahnya ke repository.
+
+Gemini API key digunakan untuk fitur-fitur berikut:
+
+- `Buat Prompt` pada editor prompt;
+- `Buat Voice` menggunakan Gemini TTS, termasuk pemuatan katalog voice Gemini 3.8;
+- pembuatan gambar awal jika model Gemini dipilih;
+- pembuatan cover project jika model Gemini dipilih.
+
+Tanpa key, atau jika key tidak valid, aplikasi tetap dapat dibuka. Hanya fitur-fitur Gemini tersebut yang akan gagal dan pesannya ditampilkan melalui Log Proses. Fitur gambar melalui Z Image, Flux 2, atau Qwen tetap menggunakan ComfyUI dan tidak memerlukan Gemini API key.

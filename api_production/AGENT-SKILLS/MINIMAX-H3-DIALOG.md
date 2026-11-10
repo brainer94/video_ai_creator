@@ -40,10 +40,10 @@ Gunakan bahasa asli dialog, misalnya `[Indonesian]`, `[English]`, atau `[Japanes
 Gunakan ID berbeda untuk pembicara berbeda dan pertahankan ID tersebut sepanjang video:
 
 ```text
-[Shot 1] The woman (S1) asks:
+[Shot 1] From 0.00 to 4.00 seconds, the woman (S1) asks:
 <d>[Indonesian] Kamu sudah siap?</d>
 
-[Shot 2] At 00:04.000, the man (S2) turns toward her and replies:
+[Shot 2] From 4.00 to 5.00 seconds, the man (S2) turns toward her and replies:
 <d>[Indonesian] Saya sudah siap.</d>
 ```
 

@@ -6,67 +6,17 @@ GEMINI_VOICE_PROFILE_DIR = ROOT / "gemini_voice_profile"
 DEFAULT_PROJECT_VOICE_CONFIG = {
     "voice_provider": "gemini",
 }
-DEFAULT_SCENE_VOICE_KEY = "yetty"
+DEFAULT_SCENE_VOICE_KEY = "lily"
 SCENE_VOICE_OPTIONS = [
-    ("Yetty (narasi)", "yetty"),
-    ("Nilasari (media sosial)", "nilasari"),
-    ("Dany Saputra (narasi)", "dany_saputra"),
-    ("Dakocan (media sosial)", "dakocan"),
-    ("Arkana (ustad religius)", "arkana"),
-    ("Arkana - Arab (tilawah)", "arkana_arab"),
-    ("Candy (anak perempuan bersemangat)", "candy"),
     ("Lily (anak perempuan kalem)", "lily"),
-    ("Asna (narator muda religius-gaul)", "asna"),
     ("Lily - Ngaji", "lily_ngaji"),
     ("Lily - Arab", "lily_arab"),
-    ("Finn (anak laki-laki bersemangat)", "finn"),
-    ("Kevin (anak laki-laki kalem)", "kevin"),
 ]
 VOICE_CHARACTER_MAP = {
-    "yetty": {
-        "display_name": "Yetty",
-        "profile_file": "Yetty.txt",
-        "gemini_profile_text": "Super Smooth Indonesian Voice, Young Adult Friendly Smart Fun Deep for Narration",
-    },
-    "nilasari": {
-        "display_name": "Nilasari",
-        "profile_file": "Nilasari.txt",
-        "gemini_profile_text": "Indonesian voice over with clear articulation and natural tone.",
-    },
-    "dany_saputra": {
-        "display_name": "Dany Saputra",
-        "profile_file": "Dany Saputra.txt",
-        "gemini_profile_text": "Indonesian voice with warm energy and strong narrative for storytelling and historical stories.",
-    },
-    "dakocan": {
-        "display_name": "Dakocan",
-        "profile_file": "Dakocan.txt",
-        "gemini_profile_text": "An Indonesian young adult male voice with casual tone. Applicable for podcast, casual voice over and storytelling.",
-    },
-    "arkana": {
-        "display_name": "Arkana",
-        "profile_file": "Arkana.txt",
-        "gemini_profile_text": "Clearly youthful 20-year-old Indonesian male voice with a noticeably high male register, light bright timbre, youthful energy, and clear forward resonance. Sound like an approachable young ustad, not an older man: lively, fresh, expressive, conversational, and naturally confident. Speak fast and fluidly with energetic pacing, crisp consonants, short natural pauses, and a melodic, persuasive, narrative delivery. Keep the voice masculine, youthful, warm, respectful, and emotionally engaging without sounding childish, heavy, deep, slow, solemn, or feminine. Do not sing.",
-    },
-    "arkana_arab": {
-        "display_name": "Arkana - Arab",
-        "profile_file": "Arkana Arab.txt",
-        "gemini_profile_text": "Clearly youthful 20-year-old Indonesian male voice with a noticeably high, bright, clear, and warm male register. Preserve Arkana's youthful, melodic, masculine timbre while reciting Arabic Quran verses and duas as a respectful, beautiful, gentle murattal. Use accurate Arabic makhraj, tajwid, harakah, shaddah, sukun, hamzah, tanwin, grammatical endings, short vowels, long vowels, natural madd, and waqaf. Keep the recitation flowing and slightly fast with short natural pauses between ayahs, never like ordinary spoken narration. Recite exactly the Arabic text provided without adding, removing, translating, paraphrasing, repeating, guessing, or silently correcting words. No instruments, background music, harmony, chorus, echo, or sound effects.",
-    },
-    "candy": {
-        "display_name": "Candy",
-        "profile_file": "Candy.txt",
-        "gemini_profile_text": "7 years old Indonesian youthful, cute, sassy, energetic, bubbly, expressive, high pitched, excited, happy, sparkly, giggly, whimsical, bright, cheerful, playful, cartoony, fun, lighthearted, kawaii",
-    },
     "lily": {
         "display_name": "Lily",
         "profile_file": "Lily.txt",
         "gemini_profile_text": "7 years old Indonesian youthful female voice with a soft and cute tone. Perfect for animated characters and storytelling. Ideal for bringing warmth and sweetness to playful or gentle characters.",
-    },
-    "asna": {
-        "display_name": "Asna",
-        "profile_file": "Asna.txt",
-        "gemini_profile_text": "18-year-old Indonesian youthful female voice based on Lily's soft, clear, and sweet tone, but with a noticeably higher, brighter register and a more mature young-adult presence. Speak faster and fluidly with crisp articulation, lively energy, short natural pauses, and an engaging narrator rhythm. Sound like a modern young Muslim woman: warm, respectful, optimistic, sincere, and subtly religious while remaining casual, relatable, fresh, and gaul. Keep the delivery expressive and confident without sounding childish, babyish, overly formal, preachy, solemn, slow, breathy, or artificial. Do not sing.",
     },
     "lily_ngaji": {
         "display_name": "Lily - Ngaji",
@@ -77,16 +27,6 @@ VOICE_CHARACTER_MAP = {
         "display_name": "Lily - Arab",
         "profile_file": "Lily Arab.txt",
         "gemini_profile_text": "Soft, clear, youthful female Arabic reciter with a brisk flowing delivery that remains melodic, beautiful, peaceful, and easy to understand. Use standardized, accurate Arabic pronunciation: preserve every harakah, makhraj, sifat, shaddah, sukun, hamzah, tanwin, grammatical ending, and short or long vowel (madd) exactly. Apply tajwid and natural waqaf correctly. Never shorten madd, lengthen short vowels, omit or merge consonants, guess unclear text, or silently alter the supplied Arabic. Keep consonants intelligible, with no dragging or blurring. Recite exactly the Arabic text provided, without instruments, background music, harmony, chorus, echo, or sound effects.",
-    },
-    "finn": {
-        "display_name": "Finn",
-        "profile_file": "Finn.txt",
-        "gemini_profile_text": "7 years old Indonesian youthful, a well-connected, young conversational male that's perfect for podcasting or casual conversations.",
-    },
-    "kevin": {
-        "display_name": "Kevin",
-        "profile_file": "Kevin.txt",
-        "gemini_profile_text": "7 years old Indonesian youthful, a deep, slightly husky voice with a groggy quality, as if it's just been woken up. The tone is rich and gravelly, carrying a warm and relaxed undertone that hints at the early morning hours.",
     },
 }
 
@@ -104,15 +44,6 @@ def resolve_scene_voice_key(scene_meta: dict) -> str:
     raw = str(scene_meta.get("voice_character", "")).strip().lower()
     if raw in VOICE_CHARACTER_MAP:
         return raw
-    legacy_profile = str(scene_meta.get("gemini_tts_profile", "")).strip().lower()
-    legacy_map = {
-        "male_adult": "yetty",
-        "female_adult": "nilasari",
-        "male_child": "finn",
-        "female_child": "candy",
-    }
-    if legacy_profile in legacy_map:
-        return legacy_map[legacy_profile]
     return DEFAULT_SCENE_VOICE_KEY
 
 

@@ -6,7 +6,6 @@ import copy
 
 from minimax_h3.minimax_h3_prompt import (
     I2VA_FIRST_SHOT_VISUAL_EN,
-    I2VA_FIRST_SHOT_VISUAL_ID,
     default_structured_prompt,
     ensure_i2va_frame_instructions,
     serialize_structured_prompt,
@@ -14,6 +13,8 @@ from minimax_h3.minimax_h3_prompt import (
 )
 
 from scripts import comfyui_api
+from scripts.special_mode import is_special_mode_enabled
+from scripts.workflow_builders import bypass_model_lora_nodes
 from logging_config import get_logger, write_log
 
 logger = get_logger(__name__)
@@ -21,7 +22,7 @@ logger = get_logger(__name__)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API_TEMPLATE = os.path.join(ROOT, "api_template")
 TEMPLATE = "minimax_h3_i2v_api.json"
-SPECIAL_UNET_MODEL = "MINIMAX-H3/10eros_max_h3_8step_turbo_beta6_int8.safetensors"
+SPECIAL_UNET_MODEL = "MINIMAX-H3/10Eros_Max_h3_8stepTURBO_beta6_int8.safetensors"
 
 I2VA_FIRST_FRAME_PREFIX = (
     "For the target video, at 0.00 seconds into the target video, "
@@ -54,8 +55,6 @@ SIZE_OPTIONS = [
 
 DEFAULT_H3_STEPS = 20
 
-_DEFAULT_I2VA_ID_NEW = default_structured_prompt("I2VA")
-_DEFAULT_I2VA_ID_NEW["shots"][0]["visual"] = I2VA_FIRST_SHOT_VISUAL_ID
 _DEFAULT_I2VA_EN = default_structured_prompt("I2VA")
 _DEFAULT_I2VA_EN["shots"][0]["visual"] = I2VA_FIRST_SHOT_VISUAL_EN
 
@@ -63,13 +62,13 @@ DEFAULT_PROMPT = {
     "prompt_instruction": "",
     "positive_prompt": structured_prompt_entry(
         "I2VA",
-        id_new=_DEFAULT_I2VA_ID_NEW,
-        en=_DEFAULT_I2VA_EN,
+        value=_DEFAULT_I2VA_EN,
     ),
     "lora_name": "MINIMAX-H3/AI-Girl-Fictional.safetensors",
     "lora_strength": 0,
     "lora_name_2": "MINIMAX-H3/AI-Girl-Fictional.safetensors",
     "lora_strength_2": 0,
+    "use_lora": False,
     "width": 368,
     "height": 640,
     "fps": 24,
@@ -224,10 +223,11 @@ def build_workflow(
     last_frame_uploaded_name: str | None = None,
 ) -> dict:
     prompt = i2v_prompt if isinstance(i2v_prompt, dict) else {}
-    if bool(prompt.get("fast_mode", False)) and bool(prompt.get("special_mode", False)):
+    special_mode = bool(prompt.get("special_mode", False)) and is_special_mode_enabled()
+    if bool(prompt.get("fast_mode", False)) and special_mode:
         raise ValueError("Mode Cepat dan Mode Khusus MiniMax H3 tidak boleh aktif bersamaan.")
     workflow = copy.deepcopy(_load_template())
-    if bool(prompt.get("special_mode", False)):
+    if special_mode:
         _set_input(workflow, "129", "unet_name", SPECIAL_UNET_MODEL)
 
     try:
@@ -257,8 +257,8 @@ def build_workflow(
             duration,
             include_last_frame=bool(last_frame_uploaded_name),
         )
-    if isinstance(positive_value, dict) and isinstance(positive_value.get("en"), dict):
-        positive_prompt = serialize_structured_prompt(positive_value["en"])
+    if isinstance(positive_value, dict):
+        positive_prompt = serialize_structured_prompt(positive_value)
     else:
         positive_prompt = str(positive_value or "")
     _set_input(workflow, "133", "prompt", positive_prompt)
@@ -292,18 +292,21 @@ def build_workflow(
             if isinstance(node_133_inputs, dict):
                 node_133_inputs.pop("last_frame", None)
 
-    _set_lora_node(
-        workflow,
-        "136",
-        prompt.get("lora_name", DEFAULT_PROMPT["lora_name"]),
-        prompt.get("lora_strength", DEFAULT_PROMPT["lora_strength"]),
-    )
-    _set_lora_node(
-        workflow,
-        "137",
-        prompt.get("lora_name_2", DEFAULT_PROMPT["lora_name_2"]),
-        prompt.get("lora_strength_2", DEFAULT_PROMPT["lora_strength_2"]),
-    )
+    if bool(prompt.get("use_lora", False)):
+        _set_lora_node(
+            workflow,
+            "136",
+            prompt.get("lora_name", DEFAULT_PROMPT["lora_name"]),
+            prompt.get("lora_strength", DEFAULT_PROMPT["lora_strength"]),
+        )
+        _set_lora_node(
+            workflow,
+            "137",
+            prompt.get("lora_name_2", DEFAULT_PROMPT["lora_name_2"]),
+            prompt.get("lora_strength_2", DEFAULT_PROMPT["lora_strength_2"]),
+        )
+    else:
+        bypass_model_lora_nodes(workflow, ("136", "137"), "129")
     _apply_steps(workflow, prompt)
     return _inject_random_noise_seed(workflow)
 

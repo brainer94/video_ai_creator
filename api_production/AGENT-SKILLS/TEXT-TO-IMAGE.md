@@ -1,20 +1,20 @@
 # Petunjuk pembuatan text menjadi image
 
-## Konfigurasi json
-File konfigurasi : `z_image_prompt.json`
+## Konfigurasi JSON
 
-## Penjelasan z_image_prompt.json
+File konfigurasi: `z_image_prompt.json`.
 
-### Hal yang perlu diisi pada z_image_prompt.json
-1. `positive_prompt`
-2. `negative_prompt`
-3. Text prompt diisi pada field `id_new` dan `id_old` pada field `positive_prompt` dan `negative_prompt`
-4. Field `id_new` dan `id_old` isinya sama dan dalam bahasa Indonesia
-5. Kemudian isikan versi bahasa inggris dalam field `en`
-6. Tidak boleh mengubah setting lain selain yang dijelaskan di atas
+Prompt disimpan langsung dalam bahasa Inggris pada `positive_prompt` dan `negative_prompt`:
 
-### Flow pembuatan image 
-1. Gambar dibuat dengan menggunakan `positive_prompt` dan `negative_prompt`
+```json
+{
+  "positive_prompt": "cinematic portrait of ...",
+  "negative_prompt": "blurry, distorted anatomy"
+}
+```
 
-### Petunjuk pembuatan prompt
-Sebagai petunjuk untuk pembuatan `positive_prompt` dan `negative_prompt` silahkan baca `Petunjuk pembuatan prompt untuk membuat text menjadi image`
+Jangan membuat wrapper bahasa dan jangan mengubah setting lain yang tidak terkait prompt.
+
+## Flow pembuatan image
+
+Gambar dibuat menggunakan `positive_prompt` dan `negative_prompt`. Tombol `Buat Prompt` boleh memakai LLM untuk menghasilkan prompt Inggris; runtime tidak menerjemahkan prompt.

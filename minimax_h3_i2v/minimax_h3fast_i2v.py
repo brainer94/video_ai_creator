@@ -9,13 +9,14 @@ import random
 
 from minimax_h3.minimax_h3_prompt import (
     I2VA_FIRST_SHOT_VISUAL_EN,
-    I2VA_FIRST_SHOT_VISUAL_ID,
     default_structured_prompt,
     ensure_i2va_frame_instructions,
     serialize_structured_prompt,
     structured_prompt_entry,
 )
 from scripts import comfyui_api
+from scripts.special_mode import is_special_mode_enabled
+from scripts.workflow_builders import bypass_model_lora_nodes
 from logging_config import get_logger, write_log
 
 logger = get_logger(__name__)
@@ -44,20 +45,18 @@ SIZE_OPTIONS = [
     ("1344x768", 1344, 768),
 ]
 
-_DEFAULT_I2VA_ID_NEW = default_structured_prompt("I2VA")
-_DEFAULT_I2VA_ID_NEW["shots"][0]["visual"] = I2VA_FIRST_SHOT_VISUAL_ID
 _DEFAULT_I2VA_EN = default_structured_prompt("I2VA")
 _DEFAULT_I2VA_EN["shots"][0]["visual"] = I2VA_FIRST_SHOT_VISUAL_EN
 DEFAULT_PROMPT = {
     "positive_prompt": structured_prompt_entry(
         "I2VA",
-        id_new=_DEFAULT_I2VA_ID_NEW,
-        en=_DEFAULT_I2VA_EN,
+        value=_DEFAULT_I2VA_EN,
     ),
     "lora_name": "MINIMAX-H3/AI-Girl-Fictional.safetensors",
     "lora_strength": 0,
     "lora_name_2": "MINIMAX-H3/AI-Girl-Fictional.safetensors",
     "lora_strength_2": 0,
+    "use_lora": False,
     "width": 368,
     "height": 640,
     "fps": 24,
@@ -184,7 +183,8 @@ def build_workflow(
     last_frame_uploaded_name: str | None = None,
 ) -> dict:
     prompt = i2v_prompt if isinstance(i2v_prompt, dict) else {}
-    if bool(prompt.get("special_mode", False)):
+    special_mode = bool(prompt.get("special_mode", False)) and is_special_mode_enabled()
+    if special_mode:
         raise ValueError("Mode Khusus tidak dapat memakai workflow MiniMax H3 Fast.")
     workflow = copy.deepcopy(_load_template())
 
@@ -215,8 +215,8 @@ def build_workflow(
             duration,
             include_last_frame=bool(last_frame_uploaded_name),
         )
-    if isinstance(positive_value, dict) and isinstance(positive_value.get("en"), dict):
-        positive_prompt = serialize_structured_prompt(positive_value["en"])
+    if isinstance(positive_value, dict):
+        positive_prompt = serialize_structured_prompt(positive_value)
     else:
         positive_prompt = str(positive_value or "")
     _set_input(workflow, "156", "prompt", positive_prompt)
@@ -230,20 +230,23 @@ def build_workflow(
         _set_input(workflow, "136", "image", str(uploaded_name))
     _set_last_frame(workflow, last_frame_uploaded_name)
 
-    # Preserve the existing semantic mapping: lora_name is LoRA 1 and
-    # lora_name_2 is LoRA 2. LoRA 2 is upstream in the FastH3 graph.
-    _set_lora_node(
-        workflow,
-        "163",
-        prompt.get("lora_name", DEFAULT_PROMPT["lora_name"]),
-        prompt.get("lora_strength", DEFAULT_PROMPT["lora_strength"]),
-    )
-    _set_lora_node(
-        workflow,
-        "162",
-        prompt.get("lora_name_2", DEFAULT_PROMPT["lora_name_2"]),
-        prompt.get("lora_strength_2", DEFAULT_PROMPT["lora_strength_2"]),
-    )
+    if bool(prompt.get("use_lora", False)):
+        # Preserve the existing semantic mapping: lora_name is LoRA 1 and
+        # lora_name_2 is LoRA 2. LoRA 2 is upstream in the FastH3 graph.
+        _set_lora_node(
+            workflow,
+            "163",
+            prompt.get("lora_name", DEFAULT_PROMPT["lora_name"]),
+            prompt.get("lora_strength", DEFAULT_PROMPT["lora_strength"]),
+        )
+        _set_lora_node(
+            workflow,
+            "162",
+            prompt.get("lora_name_2", DEFAULT_PROMPT["lora_name_2"]),
+            prompt.get("lora_strength_2", DEFAULT_PROMPT["lora_strength_2"]),
+        )
+    else:
+        bypass_model_lora_nodes(workflow, ("162", "163"), "159")
     return _inject_random_noise_seed(workflow)
 
 

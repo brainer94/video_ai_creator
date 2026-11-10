@@ -18,8 +18,8 @@ import subprocess
 from PIL import Image
 
 from scripts import comfyui_api
-from scripts.runtime_service_controller import RuntimeServiceController, project_uses_hipfire
 from scripts.server_config import get_server_address
+from scripts.special_mode import is_special_mode_enabled
 from scripts.timeout_config import COMFYUI_WORKFLOW_TIMEOUT_SECONDS, COMFYUI_POLL_INTERVAL_SECONDS
 from scripts.workflow_builders import load_json
 from z_image.z_image import (
@@ -50,6 +50,12 @@ from minimax_h3_i2v.minimax_h3fast_i2v import (
 from minimax_h3.minimax_h3_i2v_panjang import (
     DEFAULT_PROMPT as DEFAULT_MINIMAX_H3_I2V_PANJANG_PROMPT,
     PROMPT_FILENAME as MINIMAX_H3_I2V_PANJANG_PROMPT_FILENAME,
+)
+from minimax_h3.minimax_h3_r2v_panjang import (
+    DEFAULT_PROMPT as DEFAULT_MINIMAX_H3_R2V_PANJANG_PROMPT,
+    MAX_GLOBAL_IMAGE_REFERENCES as MINIMAX_H3_R2V_PANJANG_MAX_GLOBAL_IMAGE_REFERENCES,
+    MAX_PROMPTS as MINIMAX_H3_R2V_PANJANG_MAX_PROMPTS,
+    PROMPT_FILENAME as MINIMAX_H3_R2V_PANJANG_PROMPT_FILENAME,
 )
 from minimax_h3_r2v.minimax_h3_r2v import (
     DEFAULT_PROMPT as DEFAULT_MINIMAX_H3_S2V_PROMPT,
@@ -82,11 +88,11 @@ from prompt_localization import (
     prepare_prompt_payload_for_save,
     read_json_for_runtime,
     resolve_prompt_payload_for_runtime,
-    prepare_project_prompts_for_runtime,
 )
 from minimax_h3.minimax_h3_prompt import (
     I2VA_FIRST_SHOT_VISUAL_EN,
     ensure_i2va_frame_instructions,
+    validate_ref2va_prompt,
     validate_i2va_frame_instructions,
 )
 from minimax_h3.minimax_h3_references import (
@@ -104,6 +110,8 @@ MINIMAX_H3_DURATION_MIN = 0.0
 MINIMAX_H3_DURATION_DECIMALS = 4
 MINIMAX_H3_I2V_PANJANG_SEGMENT_PREFIX = "minimax_h3_i2v_panjang_segment_"
 MINIMAX_H3_I2V_PANJANG_SEGMENT_SUFFIX = ".mp4"
+MINIMAX_H3_R2V_PANJANG_SEGMENT_PREFIX = "minimax_h3_r2v_panjang_segment_"
+MINIMAX_H3_R2V_PANJANG_SEGMENT_SUFFIX = ".mp4"
 DEFAULT_IMAGE_PAN_PROMPT = {
     "width": 480,
     "height": 848,
@@ -148,22 +156,21 @@ def _read_scene_json(scene_dir, filename, required=False, preserve_structured=Fa
             'minimax_h3_i2v_panjang_prompt.json',
             'minimax_h3_s2v_prompt.json',
             'minimax_h3_r2v_prompt.json',
+            'minimax_h3_r2v_panjang_prompt.json',
         }:
-            # MiniMax must never run with stale English or untranslated
-            # fallback text. A runtime translation/validation failure is a
-            # hard scene failure and must reach the caller.
-            write_log(f"MiniMax prompt runtime validation/translation failed for {path}: {e}", level="error")
-            raise RuntimeError(f"MiniMax prompt gagal divalidasi/diterjemahkan: {filename}") from e
-        write_log(f"Prompt localization runtime fallback untuk {path}: {e}", level="warning")
+            # MiniMax must never run with stale or invalid prompt text. A
+            # runtime validation failure is a hard scene failure.
+            write_log(f"MiniMax prompt runtime validation failed for {path}: {e}", level="error")
+            raise RuntimeError(f"MiniMax prompt gagal divalidasi: {filename}") from e
+        write_log(f"Prompt schema runtime fallback untuk {path}: {e}", level="warning")
         if required:
-            # fallback to non-translated prompt text so runtime can still continue
+            # Preserve the existing safe fallback for non-MiniMax prompts.
             if not os.path.exists(path):
                 raise
             raw_data = load_json(path)
             resolved, _, _ = resolve_prompt_payload_for_runtime(
                 filename,
                 raw_data,
-                translate_fn=lambda text: text,
                 log_fn=write_log,
                 preserve_structured=preserve_structured,
             )
@@ -174,7 +181,6 @@ def _read_scene_json(scene_dir, filename, required=False, preserve_structured=Fa
         resolved, _, _ = resolve_prompt_payload_for_runtime(
             filename,
             raw_data,
-            translate_fn=lambda text: text,
             log_fn=write_log,
             preserve_structured=preserve_structured,
         )
@@ -301,11 +307,17 @@ def _concat_video_segments(segment_paths: list[str], output_path: str, *, preser
     return output_path
 
 
-def _get_minimax_h3_i2v_panjang_segment_paths(scene_dir: str) -> list[str]:
-    """Return every available numeric MiniMax segment file in numeric order."""
+def _get_minimax_h3_i2v_panjang_segment_paths(
+    scene_dir: str,
+    *,
+    prefix: str | None = None,
+    suffix: str | None = None,
+    label: str = "MiniMax H3 I2V panjang",
+) -> list[str]:
+    """Return every available numeric chained MiniMax segment in order."""
     scene_dir = str(scene_dir)
-    prefix = MINIMAX_H3_I2V_PANJANG_SEGMENT_PREFIX
-    suffix = MINIMAX_H3_I2V_PANJANG_SEGMENT_SUFFIX
+    prefix = prefix or MINIMAX_H3_I2V_PANJANG_SEGMENT_PREFIX
+    suffix = suffix or MINIMAX_H3_I2V_PANJANG_SEGMENT_SUFFIX
     candidates = []
     try:
         filenames = os.listdir(scene_dir)
@@ -363,7 +375,7 @@ def _get_minimax_h3_i2v_panjang_segment_paths(scene_dir: str) -> list[str]:
 
     if invalid:
         raise RuntimeError(
-            "video segment MiniMax H3 I2V panjang tidak valid/kosong: "
+            f"video segment {label} tidak valid/kosong: "
             + ", ".join(invalid)
         )
     return [os.path.abspath(path) for path in segment_paths]
@@ -437,7 +449,7 @@ def _prepare_minimax_h3_i2v_prompt_for_run(prompt: dict, duration: float, *, inc
         duration,
         include_last_frame=include_last_frame,
     )
-    english_prompt = prepared["positive_prompt"].get("en")
+    english_prompt = prepared["positive_prompt"]
     if isinstance(english_prompt, dict):
         shots = english_prompt.get("shots")
         last_shot = next(
@@ -554,6 +566,7 @@ def process_scene(scene_dir, server):
             'minimax-h3_i2v',
             'minimax-h3_i2v-panjang',
             'minimax-h3_t2v',
+            'minimax-h3_r2v-panjang',
         }:
             try:
                 marker_path = write_audio_composed_marker(
@@ -789,9 +802,9 @@ def process_scene(scene_dir, server):
             scene_duration = float(scene_meta.get('duration_seconds', 0))
         except Exception:
             scene_duration = 0
-        if not (MINIMAX_H3_DURATION_MIN <= scene_duration <= 30.0 and scene_duration == round(scene_duration, MINIMAX_H3_DURATION_DECIMALS)):
+        if not (MINIMAX_H3_DURATION_MIN <= scene_duration <= 15.0 and scene_duration == round(scene_duration, MINIMAX_H3_DURATION_DECIMALS)):
             write_log(
-                "minimax-h3_t2v scene duration must be between 0.0 and 30.0 seconds with at most 4 decimals: "
+                "minimax-h3_t2v scene duration must be between 0.0 and 15.0 seconds with at most 4 decimals: "
                 f"{scene_duration}"
             )
             return False
@@ -814,7 +827,7 @@ def process_scene(scene_dir, server):
 
         t2v_duration = scene_duration
         use_fast_t2v = bool(t2v_prompt.get("fast_mode", False))
-        if use_fast_t2v and bool(t2v_prompt.get("special_mode", False)):
+        if use_fast_t2v and is_special_mode_enabled() and bool(t2v_prompt.get("special_mode", False)):
             write_log(
                 f"MiniMax H3 T2V tidak boleh mengaktifkan Mode Cepat dan Mode Khusus bersamaan untuk {scene_dir}"
             )
@@ -944,7 +957,7 @@ def process_scene(scene_dir, server):
 
         remove_sound = bool(chained_prompt.get('remove_sound', False))
         use_fast_i2v = bool(chained_prompt.get("fast_mode", False))
-        if use_fast_i2v and bool(chained_prompt.get("special_mode", False)):
+        if use_fast_i2v and is_special_mode_enabled() and bool(chained_prompt.get("special_mode", False)):
             write_log(
                 f"MiniMax H3 I2V-Panjang tidak boleh mengaktifkan Mode Cepat dan Mode Khusus bersamaan untuk {scene_dir}"
             )
@@ -1161,11 +1174,7 @@ def process_scene(scene_dir, server):
                 write_log(f"Prompt MiniMax H3 I2V panjang ke-{stage_number} tidak valid")
                 return False
             stage_prompt = copy.deepcopy(chained_prompt)
-            stage_prompt['positive_prompt'] = {
-                'id_old': copy.deepcopy(raw_entry.get('id_old', {})),
-                'id_new': copy.deepcopy(raw_entry.get('id_new', {})),
-                'en': copy.deepcopy(raw_entry.get('en', {})),
-            }
+            stage_prompt['positive_prompt'] = copy.deepcopy(raw_entry)
             try:
                 stage_prompt = _prepare_minimax_h3_i2v_prompt_for_run(
                     stage_prompt,
@@ -1300,6 +1309,305 @@ def process_scene(scene_dir, server):
             success_message=f"Completed minimax-h3_i2v-panjang processing for {scene_dir}",
         )
 
+    if scene_type == 'minimax-h3_r2v-panjang':
+        try:
+            scene_duration = float(scene_meta.get('duration_seconds', 0))
+        except Exception:
+            scene_duration = 0
+        if not (MINIMAX_H3_DURATION_MIN <= scene_duration <= 15.0 and scene_duration == round(scene_duration, MINIMAX_H3_DURATION_DECIMALS)):
+            write_log(
+                "minimax-h3_r2v-panjang scene duration must be between 0.0 and 15.0 seconds with at most 4 decimals: "
+                f"{scene_duration}"
+            )
+            return False
+
+        _ensure_scene_json(
+            scene_dir,
+            MINIMAX_H3_R2V_PANJANG_PROMPT_FILENAME,
+            DEFAULT_MINIMAX_H3_R2V_PANJANG_PROMPT,
+        )
+        try:
+            chained_prompt = _read_scene_json(
+                scene_dir,
+                MINIMAX_H3_R2V_PANJANG_PROMPT_FILENAME,
+                required=True,
+            )
+            prompts = chained_prompt.get('prompts') if isinstance(chained_prompt, dict) else None
+            if not isinstance(prompts, list) or len(prompts) != MINIMAX_H3_R2V_PANJANG_MAX_PROMPTS:
+                raise ValueError(
+                    f'field prompts harus berisi tepat {MINIMAX_H3_R2V_PANJANG_MAX_PROMPTS} prompt'
+                )
+            continuation_count = int(chained_prompt.get('continuations', 0))
+        except Exception as e:
+            write_log(
+                f"Failed to read {MINIMAX_H3_R2V_PANJANG_PROMPT_FILENAME} for {scene_dir}: {e}"
+            )
+            return False
+        if continuation_count not in {0, 1, 2, 3}:
+            write_log(f"minimax-h3_r2v-panjang continuation must be 0..3: {continuation_count}")
+            return False
+
+        try:
+            run_start_stage = int(chained_prompt.get('run_start_stage', 1))
+        except (TypeError, ValueError):
+            write_log("minimax-h3_r2v-panjang run_start_stage harus berupa integer 1..4")
+            return False
+        active_stage_count = continuation_count + 1
+        if not 1 <= run_start_stage <= active_stage_count:
+            write_log(
+                "minimax-h3_r2v-panjang run_start_stage harus berada pada tab aktif: "
+                f"{run_start_stage} (aktif 1..{active_stage_count})"
+            )
+            return False
+
+        references = chained_prompt.get('references', {})
+        references = references if isinstance(references, dict) else {}
+        image_names = [
+            str(value).strip()
+            for value in references.get('images', [])
+            if str(value).strip()
+        ]
+        audio_names = [
+            str(value).strip()
+            for value in references.get('audios', [])
+            if str(value).strip()
+        ]
+        video_name = str(references.get('video', '')).strip()
+        if len(image_names) > MINIMAX_H3_R2V_PANJANG_MAX_GLOBAL_IMAGE_REFERENCES:
+            write_log(
+                "minimax-h3_r2v-panjang maksimal memiliki 4 image reference global "
+                "karena satu slot image dicadangkan untuk frame proses sebelumnya."
+            )
+            return False
+        if len(audio_names) > 3:
+            write_log("minimax-h3_r2v-panjang maksimal memiliki 3 audio reference global")
+            return False
+        if not image_names and not audio_names and not video_name:
+            write_log(
+                "minimax-h3_r2v-panjang membutuhkan minimal satu reference image, audio, atau video global"
+            )
+            return False
+
+        reference_paths = [os.path.join(scene_dir, name) for name in image_names + audio_names]
+        if video_name:
+            reference_paths.append(os.path.join(scene_dir, video_name))
+        missing = [path for path in reference_paths if not os.path.isfile(path)]
+        if missing:
+            write_log(
+                "reference global minimax-h3_r2v-panjang tidak ditemukan: "
+                + ", ".join(os.path.basename(path) for path in missing[:3])
+            )
+            return False
+
+        if (
+            bool(chained_prompt.get("fast_mode", False))
+            and is_special_mode_enabled()
+            and bool(chained_prompt.get("special_mode", False))
+        ):
+            write_log(
+                f"MiniMax H3 R2V panjang tidak boleh mengaktifkan Mode Cepat dan Mode Khusus bersamaan untuk {scene_dir}"
+            )
+            return False
+
+        for validation_stage in range(run_start_stage, active_stage_count + 1):
+            entry = prompts[validation_stage - 1]
+            if not isinstance(entry, dict):
+                write_log(
+                    f"Prompt MiniMax H3 R2V panjang ke-{validation_stage} harus berupa object"
+                )
+                return False
+            prompt_errors = validate_ref2va_prompt(entry)
+            if prompt_errors:
+                write_log(
+                    f"Prompt MiniMax H3 R2V panjang ke-{validation_stage} tidak valid: "
+                    + "; ".join(prompt_errors[:3])
+                )
+                return False
+
+        # A partial run reuses completed segments and their extracted frames.
+        segment_paths = []
+        generated_frames = {}
+        for previous_stage in range(1, run_start_stage):
+            previous_segment = os.path.join(
+                scene_dir,
+                f"{MINIMAX_H3_R2V_PANJANG_SEGMENT_PREFIX}{previous_stage}{MINIMAX_H3_R2V_PANJANG_SEGMENT_SUFFIX}",
+            )
+            if not os.path.isfile(previous_segment) or os.path.getsize(previous_segment) <= 0:
+                write_log(
+                    "MiniMax H3 R2V panjang partial run membutuhkan video segment "
+                    f"{previous_stage} yang sudah ada: {previous_segment}"
+                )
+                return False
+            frame_path = os.path.join(
+                scene_dir,
+                f"minimax_h3_r2v_panjang_frame_{previous_stage}.png",
+            )
+            if not os.path.isfile(frame_path) or os.path.getsize(frame_path) <= 0:
+                try:
+                    _extract_last_frame_image(previous_segment, frame_path)
+                except Exception as e:
+                    write_log(
+                        f"Failed to extract last frame from reused R2V panjang segment {previous_stage}: {e}"
+                    )
+                    return False
+            segment_paths.append(os.path.abspath(previous_segment))
+            generated_frames[previous_stage] = os.path.abspath(frame_path)
+
+        uploaded_images = [_upload_to_comfy(os.path.join(scene_dir, name)) for name in image_names]
+        uploaded_audios = [_upload_to_comfy_audio(os.path.join(scene_dir, name)) for name in audio_names]
+        uploaded_video = _upload_to_comfy_video(os.path.join(scene_dir, video_name)) if video_name else None
+        if any(not value for value in uploaded_images + uploaded_audios) or (video_name and not uploaded_video):
+            write_log("gagal upload satu atau lebih reference global R2V panjang ke ComfyUI")
+            return False
+
+        remove_sound = bool(chained_prompt.get("remove_sound", False))
+        for stage_index in range(run_start_stage - 1, active_stage_count):
+            stage_number = stage_index + 1
+            raw_entry = prompts[stage_index]
+            if not isinstance(raw_entry, dict):
+                write_log(f"Prompt MiniMax H3 R2V panjang ke-{stage_number} tidak valid")
+                return False
+            stage_prompt = copy.deepcopy(chained_prompt)
+            stage_prompt['positive_prompt'] = copy.deepcopy(raw_entry)
+
+            stage_images = list(uploaded_images)
+            if stage_number > 1:
+                carry_frame = generated_frames.get(stage_number - 1)
+                if not carry_frame or not os.path.isfile(carry_frame):
+                    write_log(
+                        f"Frame terakhir Proses {stage_number - 1} diperlukan sebagai image tambahan Proses {stage_number}"
+                    )
+                    return False
+                uploaded_carry_frame = _upload_to_comfy(carry_frame)
+                if not uploaded_carry_frame:
+                    write_log(
+                        f"gagal upload frame terakhir Proses {stage_number - 1} untuk R2V panjang Proses {stage_number}"
+                    )
+                    return False
+                stage_images.append(uploaded_carry_frame)
+
+            try:
+                r2v_workflow = build_minimax_h3_r2v_workflow(
+                    stage_prompt,
+                    scene_meta=scene_meta,
+                    image_names=stage_images,
+                    audio_names=uploaded_audios,
+                    video_name=uploaded_video,
+                    duration_override=scene_duration,
+                    fps_override=stage_prompt.get('fps', 24),
+                )
+            except Exception as e:
+                write_log(f"Failed to build MiniMax H3 R2V panjang stage {stage_number}: {e}")
+                return False
+            r2v_result = send_minimax_h3_s2v_workflow(
+                r2v_workflow,
+                server,
+                log_file=LOG_FILE,
+                source_label=os.path.join(scene_dir, MINIMAX_H3_R2V_PANJANG_PROMPT_FILENAME),
+            )
+            if not r2v_result:
+                write_log(f"send_minimax_h3_r2v_workflow failed for stage {stage_number} in {scene_dir}")
+                return False
+            prompt_id = r2v_result.get('prompt_id') or r2v_result.get('id')
+            write_log(f"Posted MiniMax H3 R2V panjang stage {stage_number} for {scene_dir}, prompt_id={prompt_id}")
+            video_out = None
+            if prompt_id:
+                video_out = comfyui_api.wait_for_output(
+                    server,
+                    prompt_id,
+                    output_type='video',
+                    timeout=COMFYUI_WORKFLOW_TIMEOUT_SECONDS,
+                    interval=POLL_INTERVAL,
+                )
+            if not video_out:
+                write_log(f"No MiniMax H3 R2V panjang video found for stage {stage_number} in {scene_dir}")
+                return False
+            video_filename = video_out.get('filename') or video_out.get('name') or video_out.get('file')
+            if not video_filename:
+                write_log(f"Cannot determine MiniMax H3 R2V panjang filename for stage {stage_number}")
+                return False
+            video_url = comfyui_api.get_file_url(
+                server,
+                video_filename,
+                subfolder=video_out.get('subfolder'),
+                type_=video_out.get('type'),
+            )
+            video_out_path = os.path.join(
+                scene_dir,
+                f"{MINIMAX_H3_R2V_PANJANG_SEGMENT_PREFIX}{stage_number}{MINIMAX_H3_R2V_PANJANG_SEGMENT_SUFFIX}",
+            )
+            try:
+                comfyui_api.download_file_url(video_url, video_out_path)
+                if not os.path.isfile(video_out_path) or os.path.getsize(video_out_path) <= 0:
+                    raise RuntimeError("file hasil kosong atau tidak ditemukan")
+            except Exception as e:
+                write_log(f"Failed to download MiniMax H3 R2V panjang stage {stage_number}: {e}")
+                return False
+            if remove_sound:
+                try:
+                    _remove_video_audio(video_out_path)
+                except Exception as e:
+                    write_log(f"Failed to remove sound from R2V panjang stage {stage_number}: {e}")
+                    return False
+            frame_path = os.path.join(
+                scene_dir,
+                f"minimax_h3_r2v_panjang_frame_{stage_number}.png",
+            )
+            try:
+                _extract_last_frame_image(video_out_path, frame_path)
+            except Exception as e:
+                write_log(f"Failed to extract last frame after R2V panjang stage {stage_number}: {e}")
+                return False
+            generated_frames[stage_number] = os.path.abspath(frame_path)
+
+        try:
+            segment_paths = _get_minimax_h3_i2v_panjang_segment_paths(
+                scene_dir,
+                prefix=MINIMAX_H3_R2V_PANJANG_SEGMENT_PREFIX,
+                suffix=MINIMAX_H3_R2V_PANJANG_SEGMENT_SUFFIX,
+                label="MiniMax H3 R2V panjang",
+            )
+        except Exception as e:
+            write_log(f"Failed to collect MiniMax H3 R2V panjang segments for {scene_dir}: {e}")
+            return False
+
+        final_video_path = os.path.join(scene_dir, 'minimax_h3_r2v_panjang_final.mp4')
+        concat_tmp_path = os.path.join(scene_dir, '__minimax_h3_r2v_panjang_concat_tmp__.mp4')
+        color_match_tmp_path = os.path.join(scene_dir, '__minimax_h3_r2v_panjang_color_match_tmp__.mp4')
+        try:
+            _concat_video_segments(
+                segment_paths,
+                concat_tmp_path,
+                preserve_audio=not remove_sound,
+            )
+            color_match_video(Path(concat_tmp_path), Path(color_match_tmp_path), strength=1.0)
+            os.replace(color_match_tmp_path, final_video_path)
+            write_log(
+                f"Applied color match to combined MiniMax H3 R2V panjang video: {final_video_path}"
+            )
+        except Exception as e:
+            write_log(f"Failed to assemble MiniMax H3 R2V panjang video for {scene_dir}: {e}")
+            return False
+        finally:
+            for temporary_path in (concat_tmp_path, color_match_tmp_path):
+                if os.path.exists(temporary_path):
+                    try:
+                        os.remove(temporary_path)
+                    except OSError:
+                        pass
+        try:
+            _invalidate_comfy_audio_source(scene_dir)
+        except Exception as e:
+            write_log(f"Failed to invalidate old MiniMax H3 R2V panjang audio source for {scene_dir}: {e}")
+            return False
+        return _finalize_scene_success(
+            final_video_path,
+            is_s2v=False,
+            preserve_comfy_audio=not remove_sound,
+            compose_audio=True,
+            success_message=f"Completed minimax-h3_r2v-panjang processing for {scene_dir}",
+        )
+
     if scene_type == 'minimax-h3_i2v':
         try:
             scene_duration = float(scene_meta.get('duration_seconds', 0))
@@ -1339,7 +1647,7 @@ def process_scene(scene_dir, server):
                 include_last_frame=False,
             )
             use_fast_i2v = bool(i2v_prompt.get("fast_mode", False))
-            if use_fast_i2v and bool(i2v_prompt.get("special_mode", False)):
+            if use_fast_i2v and is_special_mode_enabled() and bool(i2v_prompt.get("special_mode", False)):
                 write_log(
                     f"MiniMax H3 I2V tidak boleh mengaktifkan Mode Cepat dan Mode Khusus bersamaan untuk {scene_dir}"
                 )
@@ -1835,16 +2143,6 @@ def main():
         print('Loop count must be >= 1')
         return 1
 
-    manage_runtime = project_uses_hipfire(project_dir)
-    runtime_controller = RuntimeServiceController.from_config() if manage_runtime else None
-    if runtime_controller is not None:
-        write_log(f"[runtime] Pra-lokalisasi prompt project sebelum switch ComfyUI: {project_dir}")
-        prepare_project_prompts_for_runtime(
-            project_dir,
-            scene_dirs=[os.path.join(project_dir, scene) for scene in scenes],
-            log_fn=write_log,
-        )
-        runtime_controller.ensure_comfyui(reason=f"main.py project={args.project}")
     for loop_idx in range(loop_count):
         if loop_count > 1:
             print(f"Starting loop {loop_idx+1}/{loop_count}")
@@ -1856,8 +2154,6 @@ def main():
                 write_log(f"Stopping run due to failure processing {scene}")
                 print(f"Stopped due to failure in {scene}")
                 return 1
-    # Pertahankan service terakhir yang diperlukan. Jangan switch balik
-    # otomatis ke Hipfire setelah workflow selesai.
     return 0
 
 

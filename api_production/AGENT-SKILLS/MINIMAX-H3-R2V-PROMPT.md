@@ -5,7 +5,7 @@ description: Menulis prompt MiniMax H3 Ref2VA/R2V dengan reference image, video,
 
 # MiniMax H3 R2V Ref2VA Prompt
 
-Gunakan mode `Ref2VA`. Prompt harus memakai tepat enam section berikut dalam urutan yang sama:
+Gunakan mode `R2VA`. Prompt disimpan langsung dalam bahasa Inggris pada `positive_prompt` dan memiliki enam section Ref2VA dalam urutan yang sama saat diserialisasi:
 
 ```text
 subject_definitions: ...
@@ -21,80 +21,66 @@ overall_soundscape: ...
 non_diegetic_music: ...
 ```
 
-## Struktur JSON
+## Struktur JSON authoring
 
 ```json
 {
   "positive_prompt": {
-    "id_old": {
-      "mode": "Ref2VA",
-      "subject_definitions": "",
-      "summary": "",
-      "retention_analysis": "",
-      "detailed_description": "",
-      "overall_soundscape": "",
-      "non_diegetic_music": ""
-    },
-    "id_new": {},
-    "en": {}
+    "mode": "R2VA",
+    "style_opening": "...",
+    "subject_definitions": "...",
+    "summary": "...",
+    "retention_analysis": "...",
+    "shots": [
+      {
+        "shot_id": "Shot 1",
+        "start": 0.0,
+        "end": 5.0,
+        "visual": "...",
+        "action": "...",
+        "camera": "...",
+        "dialogue": "...",
+        "diegetic_sound": "..."
+      }
+    ],
+    "overall_soundscape": "...",
+    "non_diegetic_music": "N/A"
   },
-  "references": {
-    "images": [],
-    "audios": [],
-    "video": ""
-  }
+  "references": {"images": [], "audios": [], "video": ""}
 }
 ```
 
-`id_old`, `id_new`, dan `en` memiliki enam field Ref2VA yang sama. `en` berisi bahasa Inggris; `id_new` dan `id_old` berisi bahasa Indonesia. `id_old` adalah salinan `id_new`.
+`shots[]` memakai struktur yang sama dengan T2VA dan I2VA. Aplikasi mengompilasi `style_opening` dan kartu shot menjadi section runtime `detailed_description`; jangan menyimpan wrapper bahasa dan jangan menulis ulang isi adegan saat mengubah struktur.
+
+Saat dikirim ke ComfyUI, setiap shot R2V diserialisasi dengan rentang waktu eksplisit:
+
+```text
+[Shot 1] From 0.00 to 1.00 seconds, ...
+[Shot 2] From 1.00 to 3.00 seconds, ...
+```
+
+Parser tetap menerima format lama `[Shot N] At MM:SS.mmm, ...` agar project lama tetap dapat dimuat, tetapi prompt baru harus menggunakan rentang `From ... to ... seconds`.
+
+Untuk scene `minimax-h3_r2v-panjang`, gunakan empat prompt authoring di
+`minimax_h3_r2v_panjang_prompt.json`. Reference image global ditulis dalam
+`references.images` dengan maksimal empat item; runtime menambahkan frame
+terakhir proses sebelumnya sebagai Picture berikutnya pada proses 2–4. Jangan
+menulis frame carry ke array reference global.
 
 ## Reference aktif
 
-Token reference harus dibuat dari manifest aktif, dengan penomoran rapat mulai dari 1:
+Token harus dibuat dari manifest aktif dengan penomoran rapat: image `<Picture N>`, video `<Video 1>`, dan audio `<Audio N>`. Gunakan hanya token yang benar-benar tersedia. `<Subject N>`, `<Shot N>`, `<d>`, `</d>`, dan speaker ID adalah token semantik yang tetap boleh digunakan.
 
-- image pertama → `<Picture 1>`
-- image kedua → `<Picture 2>`
-- video aktif → `<Video 1>`
-- audio pertama → `<Audio 1>`
-- audio kedua → `<Audio 2>`
-
-Gunakan hanya token yang benar-benar tersedia. Reference yang tidak aktif harus dihapus dari prompt. Jangan mengarang, mengganti nama, atau melompati nomor token.
-
-Token semantik berikut bukan file reference dan tetap boleh digunakan:
-
-```text
-<Subject N>, <Shot N>, <d>, </d>, dan speaker IDs
-```
-
-Contoh manifest:
-
-```text
-Picture references: <Picture 1>, <Picture 2>
-Video references: none
-Audio references: <Audio 1>
-```
-
-Dalam contoh tersebut, `<Video 1>`, `<Audio 2>`, dan `<Picture 3>` dilarang.
+Pertahankan setiap token reference persis sama pada keenam section. Jangan mengarang, mengganti nama, atau melompati nomor token.
 
 ## Cara menulis enam section
 
-- `subject_definitions`: definisikan identitas subjek dan hubungan subjek dengan token reference yang aktif.
-- `summary`: ringkas adegan, tujuan aksi, dan hubungan antar-reference.
-- `retention_analysis`: jelaskan detail yang harus dipertahankan dari setiap reference—identitas, pakaian, bentuk, warna, objek, ruang, dan audio penting.
-- `detailed_description`: jelaskan timeline visual, aksi, kamera, transisi, dialog, dan penggunaan reference secara rinci.
-- `overall_soundscape`: gabungkan ambience, suara fisik, suara manusia non-verbal, dan suara dari reference audio yang aktif.
-- `non_diegetic_music`: jelaskan musik latar yang hanya didengar penonton, atau gunakan `N/A`.
+- `subject_definitions`: identitas subjek dan hubungan dengan reference aktif.
+- `summary`: ringkasan adegan, tujuan aksi, dan hubungan antar-reference.
+- `retention_analysis`: detail reference yang harus dipertahankan.
+- `style_opening`: gaya visual global sebelum shot pertama, bila diperlukan.
+- `shots[]`: timeline visual, aksi, kamera, dialog, suara, dan penggunaan reference.
+- `overall_soundscape`: ambience, suara fisik, suara manusia non-verbal, dan audio reference.
+- `non_diegetic_music`: musik latar atau `N/A`.
 
-## Penulisan shot
-
-`detailed_description` tetap berupa satu string Ref2VA. Jika perintah pengguna meminta beberapa shot, tulis timeline di dalam string tersebut menggunakan marker teks, misalnya:
-
-```text
-[Shot 1] From 0.00 to 5.00 seconds, describe the first composition, action, camera, and sound.
-
-[Shot 2] From 5.00 to 10.00 seconds, describe the next action, transition, continuity, and sound.
-```
-
-Jumlah shot mengikuti perintah pengguna dan tidak dipaksa oleh validator. Setiap shot yang ditulis harus memiliki timing yang tidak tumpang tindih, visual, aksi, kamera, suara, dan kesinambungan reference aktif. Jangan menambahkan array JSON `shots`; marker shot hanya berada di dalam `detailed_description`.
-
-Pertahankan setiap token reference persis sama pada keenam section. Jangan menulis token yang tidak tersedia, termasuk token yang hanya muncul pada contoh dokumen referensi.
+Teks dialog dan lirik lengkap hanya ditulis pada field dialog shot sesuai aturan `MINIMAX-H3-DIALOG.md` dan referensi Ref2VA. Tombol `Buat Prompt` boleh memakai LLM untuk menghasilkan object Inggris; runtime tidak menerjemahkan prompt.

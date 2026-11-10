@@ -13,7 +13,6 @@ if str(ROOT) not in sys.path:
 
 from logging_config import get_logger, setup_logging, write_log
 from scripts import comfyui_api
-from scripts.runtime_service_controller import RuntimeServiceController, project_uses_hipfire
 from scripts.server_config import get_server_address
 from scripts.timeout_config import COMFYUI_POLL_INTERVAL_SECONDS, COMFYUI_WORKFLOW_TIMEOUT_SECONDS
 
@@ -193,13 +192,6 @@ def run(project: str, server: str, selected_scenes: list[str] | None = None) -> 
     if not scene_dirs:
         write_log(f"[gan-upscale] Tidak ada scene yang cocok pada {project_dir}", level="error")
         return 1
-
-    if project_uses_hipfire(project_dir):
-        controller = RuntimeServiceController.from_config()
-        write_log("[gan-upscale] Project memakai Hipfire; memastikan ComfyUI aktif")
-        controller.ensure_comfyui(reason=f"GAN upscale project={project}")
-    else:
-        write_log("[gan-upscale] Project memakai Gemini; switch runtime tidak diperlukan")
 
     for scene_dir in scene_dirs:
         if not upscale_scene(scene_dir, server):

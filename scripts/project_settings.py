@@ -1,10 +1,12 @@
 import copy
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from z_image.z_image import DEFAULT_PROMPT as DEFAULT_Z_IMAGE_PROMPT
 
 PROJECT_SETTINGS_FILE = "project_settings.json"
+DEFAULT_PROMPT_GENERATION_MODEL = "gemini-3.1-flash-lite"
 DEFAULT_PROJECT_VOICE_CONFIG = {
     "voice_provider": "gemini",
 }
@@ -14,20 +16,12 @@ DEFAULT_PROJECT_CAPTION_CONFIG = {
 
 DEFAULT_PROJECT_SETTINGS = {
     "project_description": "",
-    "comfyui_server": "nextgenserver:8188",
     "video_size": {
         "width": 480,
         "height": 848,
     },
     "prompt_generation": {
-        "provider": "hipfire",
-        "model": "qwen3.8-27",
-        "host": "nextgenserver",
-        "port": 11435,
-    },
-    "translate": {
-        "provider": "gemini",
-        "model": "gemini-3.1-flash-lite",
+        "model": DEFAULT_PROMPT_GENERATION_MODEL,
     },
     "voice": copy.deepcopy(DEFAULT_PROJECT_VOICE_CONFIG),
     "caption": copy.deepcopy(DEFAULT_PROJECT_CAPTION_CONFIG),
@@ -59,10 +53,10 @@ def _normalize_size(value, fallback_w: int, fallback_h: int) -> tuple[int, int]:
 def _normalize_settings(data: dict | None) -> dict:
     merged = copy.deepcopy(DEFAULT_PROJECT_SETTINGS)
     if isinstance(data, dict):
-        for key in ("project_description", "comfyui_server"):
+        for key in ("project_description",):
             if key in data:
                 merged[key] = str(data.get(key, "")).strip()
-        for key in ("prompt_generation", "translate", "voice", "caption", "cover"):
+        for key in ("prompt_generation", "voice", "caption", "cover"):
             value = data.get(key)
             if isinstance(value, dict):
                 merged[key].update(value)
@@ -74,40 +68,13 @@ def _normalize_settings(data: dict | None) -> dict:
         merged["video_size"] = {"width": width, "height": height}
 
     merged["project_description"] = str(merged.get("project_description", "")).strip()
-    merged["comfyui_server"] = str(
-        merged.get("comfyui_server", DEFAULT_PROJECT_SETTINGS["comfyui_server"])
-    ).strip() or DEFAULT_PROJECT_SETTINGS["comfyui_server"]
-    for key in ("prompt_generation", "translate"):
+    for key in ("prompt_generation",):
         sub = merged.get(key) if isinstance(merged.get(key), dict) else {}
-        provider = str(sub.get("provider", "gemini")).strip().lower()
         if key == "prompt_generation":
-            legacy_local_provider = provider in {"llama.cpp", "ollama", "llama"}
-            if legacy_local_provider:
-                provider = "hipfire"
-            sub["provider"] = provider if provider in {"gemini", "hipfire"} else "gemini"
-            sub["host"] = str(sub.get("host", DEFAULT_PROJECT_SETTINGS[key]["host"])).strip() or DEFAULT_PROJECT_SETTINGS[key]["host"]
-            try:
-                sub["port"] = int(sub.get("port", DEFAULT_PROJECT_SETTINGS[key]["port"]))
-            except (TypeError, ValueError):
-                sub["port"] = DEFAULT_PROJECT_SETTINGS[key]["port"]
-            if sub["port"] <= 0:
-                sub["port"] = DEFAULT_PROJECT_SETTINGS[key]["port"]
-            if sub["provider"] == "hipfire":
-                if sub["host"] == "nextgenserver" and sub["port"] == 8080:
-                    sub["port"] = DEFAULT_PROJECT_SETTINGS[key]["port"]
-                if sub["model"] in {"qwen3.8-27b", "qwen3.8-27b-uc-q4_k_m"}:
-                    sub["model"] = DEFAULT_PROJECT_SETTINGS[key]["model"]
-            sub.pop("temperature", None)
-            sub.pop("thinking_mode", None)
-        else:
-            sub["provider"] = "gemini" if provider != "gemini" else provider
-        model = str(sub.get("model", DEFAULT_PROJECT_SETTINGS[key]["model"])).strip()
-        sub["model"] = model or DEFAULT_PROJECT_SETTINGS[key]["model"]
-        merged[key] = sub
-    merged["translate"] = {
-        "provider": merged["prompt_generation"]["provider"],
-        "model": merged["prompt_generation"]["model"],
-    }
+            model = str(sub.get("model", DEFAULT_PROJECT_SETTINGS[key]["model"])).strip()
+            if not model or model.startswith(("qwen", "llama", "ollama")):
+                model = DEFAULT_PROMPT_GENERATION_MODEL
+            merged[key] = {"model": model}
 
     caption = merged.get("caption") if isinstance(merged.get("caption"), dict) else {}
     merged["voice"] = {
@@ -119,6 +86,37 @@ def _normalize_settings(data: dict | None) -> dict:
     if not isinstance(merged.get("cover"), dict):
         merged["cover"] = copy.deepcopy(DEFAULT_Z_IMAGE_PROMPT)
     return merged
+
+
+def validate_comfyui_address(value: str) -> str:
+    """Validate a host:port or HTTP(S) ComfyUI URL without removing its query."""
+    address = str(value or "").strip()
+    if not address:
+        return ""
+    if "://" not in address:
+        if ":" not in address:
+            raise ValueError("Alamat ComfyUI harus berupa host:port atau URL HTTP(S).")
+        host, port = address.rsplit(":", 1)
+        if not host.strip():
+            raise ValueError("Host ComfyUI tidak valid.")
+        try:
+            port_value = int(port.strip())
+        except ValueError as exc:
+            raise ValueError("Port ComfyUI harus berupa angka.") from exc
+        if not 1 <= port_value <= 65535:
+            raise ValueError("Port ComfyUI harus berada antara 1 dan 65535.")
+        return address
+
+    parsed = urlsplit(address)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("URL ComfyUI harus menggunakan http:// atau https://.")
+    try:
+        port_value = parsed.port
+    except ValueError as exc:
+        raise ValueError("Port URL ComfyUI tidak valid.") from exc
+    if port_value is not None and not 1 <= port_value <= 65535:
+        raise ValueError("Port URL ComfyUI harus berada antara 1 dan 65535.")
+    return address.rstrip("/")
 
 
 def load_project_settings(project_dir: Path) -> dict:

@@ -5,6 +5,7 @@ import random
 
 from scripts import comfyui_api
 from logging_config import get_logger, write_log
+from minimax_h3.minimax_h3_prompt import unwrap_prompt_value
 
 
 logger = get_logger(__name__)
@@ -47,12 +48,9 @@ def _load_template() -> dict:
 
 
 def _prompt_text(value) -> str:
+    value = unwrap_prompt_value(value)
     if isinstance(value, dict):
-        for key in ("en", "id_new", "id_old"):
-            text = str(value.get(key, "") or "").strip()
-            if text:
-                return text
-        return ""
+        return str(value.get("prompt", "") or "").strip()
     return str(value or "").strip()
 
 

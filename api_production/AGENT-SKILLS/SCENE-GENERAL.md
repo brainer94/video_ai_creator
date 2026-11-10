@@ -2,16 +2,16 @@
 
 Gunakan informasi yang tersedia dalam request `Buat Prompt`:
 
-- `Context` memuat `Scene title`, `Scene type`, target prompt, mode aktif, serta ukuran, durasi, atau referensi yang tersedia untuk target tersebut.
+- `Context` memuat `Scene title`, `Scene type`, target prompt, mode aktif, ukuran, durasi, dan reference yang tersedia.
 - `Prompt`, jika disertakan, berisi prompt awal yang perlu dikembangkan.
 - `ADDITIONAL INSTRUCTION FROM UI`, jika disertakan, berisi instruksi pengguna untuk target aktif.
-- `ORDERED PICTURE MANIFEST`, gambar terlampir, dan manifest referensi aktif, jika tersedia, menentukan sumber dan urutan referensi yang boleh digunakan.
+- Manifest reference terurut dan gambar terlampir menentukan sumber serta urutan reference yang boleh digunakan.
 
-## Aturan penyusunan prompt
+## Aturan penyusunan
 
-- Susun hanya prompt untuk target dan tahap aktif. Dokumen scene dapat menjelaskan beberapa file atau tahap, tetapi satu request tidak meminta seluruh konfigurasi scene.
-- Ikuti schema respons dan mode aktif pada request. Untuk MiniMax H3, hasilkan object `en`; aplikasi menangani translasi ke `id_new` dan sinkronisasi `id_old`.
-- Gunakan durasi dari konteks sesuai aturan scene dan tahap aktif. Pertahankan nilai desimal; jangan membulatkannya ke pilihan durasi preset.
-- Pertahankan token dan urutan referensi aktif. Contoh dalam dokumen tidak menambah referensi yang tersedia pada scene.
+- Susun hanya prompt untuk target dan stage aktif.
+- Ikuti schema dan mode aktif. Untuk MiniMax H3, hasilkan object JSON prompt langsung dalam bahasa Inggris; jangan mengembalikan wrapper bahasa.
+- Gunakan durasi dari konteks tanpa membulatkan nilai desimal.
+- Pertahankan token dan urutan reference aktif. Contoh dokumen tidak menambah reference yang tersedia.
 - Pertahankan parameter teknis seperti ukuran dan LoRA; perubahan kreatif hanya diterapkan pada isi prompt.
-- Informasi yang tidak disertakan dalam request tidak perlu diminta atau direka.
+- LLM hanya membuat prompt saat tombol `Buat Prompt` dipakai. Runtime aplikasi tidak menerjemahkan prompt.

@@ -104,6 +104,7 @@ keys.cfg
 history_fetch/
 prompt_planning/
 backup_production/
+.prompt_migration_backups/
 production_helper/
 outputs/
 output-music/
@@ -133,6 +134,9 @@ music/
 # Misc tooling
 .pypirc
 switch-key.cfg
+special-mode.cfg
+MIGRATION.md
+opencode.json
 .ruff_cache/
 .cursorignore
 .cursorindexingignore

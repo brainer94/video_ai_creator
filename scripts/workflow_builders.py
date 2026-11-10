@@ -47,3 +47,37 @@ def replace_any_string_values(node, replace_map):
                     node[idx] = replace_map[item]
             else:
                 replace_any_string_values(item, replace_map)
+
+
+def bypass_model_lora_nodes(
+    workflow: dict,
+    lora_node_ids: tuple[str, ...] | list[str],
+    base_model_node_id: str,
+) -> None:
+    """Remove model-only LoRA nodes and reconnect their model consumers.
+
+    MiniMax templates place two ``LoraLoaderModelOnly`` nodes in a model
+    chain.  When LoRA is disabled, leaving those nodes in the API payload can
+    still make ComfyUI try to load the selected file.  Reconnect every model
+    input that points to one of the LoRA nodes, then remove the nodes so the
+    workflow follows the original model path directly.
+    """
+    if not isinstance(workflow, dict):
+        return
+    lora_ids = {str(node_id) for node_id in (lora_node_ids or ())}
+    if not lora_ids:
+        return
+    base_link = [str(base_model_node_id), 0]
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        for key, value in list(inputs.items()):
+            if key != "model" or not isinstance(value, list) or not value:
+                continue
+            if str(value[0]) in lora_ids:
+                inputs[key] = list(base_link)
+    for node_id in lora_ids:
+        workflow.pop(node_id, None)

@@ -20,7 +20,6 @@ I2VA_FIRST_FRAME_DETAIL_INSTRUCTION = (
     "clothing, important objects, or spatial layout."
 )
 I2VA_FIRST_SHOT_VISUAL_EN = "At 0.00 seconds, <Picture 1> is the first frame of the video"
-I2VA_FIRST_SHOT_VISUAL_ID = "Pada 0,00 detik, <Picture 1> adalah frame pertama video"
 REQUIRED_SHOT_KEYS = (
     "shot_id",
     "start",
@@ -41,7 +40,53 @@ REF2VA_SECTION_KEYS = (
     "non_diegetic_music",
 )
 
-_REF2VA_TOKEN_PATTERN = re.compile(r"<[^<>]+>")
+LEGACY_PROMPT_WRAPPER_KEYS = ("id_new", "id_old", "en")
+
+
+def unwrap_prompt_value(value):
+    """Return the canonical prompt value from old or new storage formats.
+
+    Older scene files wrapped every prompt in ``id_old``/``id_new``/``en``.
+    The canonical format stores the English value directly.  Keeping this
+    adapter at the schema boundary lets old projects load safely while every
+    new save and runtime path uses the direct value.
+    """
+    current = copy.deepcopy(value)
+    for _ in range(4):
+        if not isinstance(current, dict) or not any(
+            key in current for key in LEGACY_PROMPT_WRAPPER_KEYS
+        ):
+            return current
+        selected = None
+        for key in ("en", "id_new", "id_old"):
+            candidate = current.get(key)
+            if isinstance(candidate, (dict, list)):
+                selected = candidate
+                break
+            if isinstance(candidate, str) and candidate.strip():
+                selected = candidate
+                break
+        if selected is None:
+            return ""
+        current = copy.deepcopy(selected)
+    return current
+
+_REF2VA_SHOT_MARKER_PATTERN = re.compile(r"(?im)(?<!\w)\[Shot\s+(\d+)\]")
+_REF2VA_SHOT_AT_PATTERN = re.compile(
+    r"^\s*At\s+(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?\s*,?\s*",
+    re.IGNORECASE,
+)
+_REF2VA_SHOT_RANGE_PATTERN = re.compile(
+    r"^\s*From\s+(\d+(?:\.\d+)?)\s+to\s+"
+    r"(\d+(?:\.\d+)?)\s+seconds?\s*,?\s*",
+    re.IGNORECASE,
+)
+_REF2VA_SHOT_ID_RANGE_PATTERN = re.compile(
+    r"^\s*Dari\s+(\d+(?:[.,]\d+)?)\s+hingga\s+"
+    r"(\d+(?:[.,]\d+)?)\s+detik\s*,?\s*",
+    re.IGNORECASE,
+)
+
 _REF2VA_REFERENCE_PATTERN = re.compile(r"<(Picture|Video|Audio)\s+(\d+)>")
 _I2VA_LAST_FRAME_SENTENCE_PATTERN = re.compile(
     r"(?:At\s+\d+(?:\.\d+)?\s+seconds,\s*<Picture\s+2>\s+is\s+the\s+last\s+frame\s+of\s+the\s+video|"
@@ -50,56 +95,9 @@ _I2VA_LAST_FRAME_SENTENCE_PATTERN = re.compile(
 )
 
 
-def _without_i2va_frame_instructions(value: dict, localized_key: str) -> dict:
-    """Return an I2VA prompt with generated first/last-frame sentences removed."""
-    result = copy.deepcopy(value)
-    if not isinstance(result, dict):
-        return result
-    shots = result.get("shots")
-    if not isinstance(shots, list):
-        return result
-    first_sentence = {
-        "en": I2VA_FIRST_SHOT_VISUAL_EN,
-        "id_new": I2VA_FIRST_SHOT_VISUAL_ID,
-        "id_old": I2VA_FIRST_SHOT_VISUAL_ID,
-    }.get(localized_key)
-    last_shot_index = max(
-        (index for index, shot in enumerate(shots) if isinstance(shot, dict)),
-        default=-1,
-    )
-    for index, shot in enumerate(shots):
-        if not isinstance(shot, dict):
-            continue
-        visual = _I2VA_LAST_FRAME_SENTENCE_PATTERN.sub("", str(shot.get("visual", "")))
-        if shot.get("shot_id") == "Shot 1" and first_sentence:
-            visual = re.sub(
-                rf"^\s*{re.escape(first_sentence)}\.?\s*",
-                "",
-                visual,
-                flags=re.IGNORECASE,
-            )
-        if index == last_shot_index:
-            # A period is added immediately before the generated last-frame
-            # sentence. Ignore that formatting-only change when comparing the
-            # creative prompt against id_old.
-            visual = re.sub(r"\.$", "", visual.rstrip())
-        shot["visual"] = re.sub(r"\s{2,}", " ", visual).strip()
-    return result
-
-
 def synchronize_i2va_frame_instructions(entry: dict) -> dict:
-    """Sync id_old only when id_new differs from it by frame instructions."""
-    result = copy.deepcopy(entry or {})
-    current_id_new = result.get("id_new")
-    previous_id_old = result.get("id_old")
-    if (
-        isinstance(current_id_new, dict)
-        and isinstance(previous_id_old, dict)
-        and _without_i2va_frame_instructions(current_id_new, "id_new")
-        == _without_i2va_frame_instructions(previous_id_old, "id_old")
-    ):
-        result["id_old"] = copy.deepcopy(current_id_new)
-    return result
+    """Normalize an I2VA value after generated frame metadata changes."""
+    return unwrap_prompt_value(entry) if isinstance(entry, dict) else {}
 
 
 def empty_ref2va_prompt() -> dict:
@@ -107,12 +105,301 @@ def empty_ref2va_prompt() -> dict:
 
 
 def validate_ref2va_prompt(value) -> list[str]:
+    value = unwrap_prompt_value(value)
     if not isinstance(value, dict):
         return ["Ref2VA prompt harus berupa object JSON."]
     errors = []
-    for key in REF2VA_SECTION_KEYS:
+    required_keys = tuple(key for key in REF2VA_SECTION_KEYS if key != "detailed_description")
+    for key in required_keys:
         if not isinstance(value.get(key), str) or not value.get(key, "").strip():
             errors.append(f"Ref2VA.{key} harus berupa string tidak kosong.")
+    shots = value.get("shots")
+    if shots is not None:
+        if not isinstance(shots, list) or not shots:
+            errors.append("Ref2VA.shots harus berupa array berisi minimal satu shot.")
+        else:
+            previous_end = 0.0
+            for index, shot in enumerate(shots):
+                prefix = f"Ref2VA.shots[{index}]"
+                if not isinstance(shot, dict):
+                    errors.append(f"{prefix} harus berupa object.")
+                    continue
+                for key in REQUIRED_SHOT_KEYS:
+                    if key not in shot:
+                        errors.append(f"{prefix}.{key} wajib ada.")
+                start, end = shot.get("start"), shot.get("end")
+                if not isinstance(start, Real) or isinstance(start, bool) or not isinstance(end, Real) or isinstance(end, bool):
+                    errors.append(f"{prefix}.start dan end harus berupa angka.")
+                elif float(start) < previous_end or float(end) <= float(start):
+                    errors.append(f"{prefix} memiliki timeline tidak valid atau tidak berurutan.")
+                else:
+                    previous_end = float(end)
+                for key in REQUIRED_SHOT_KEYS:
+                    if key not in {"start", "end"} and not isinstance(shot.get(key), str):
+                        errors.append(f"{prefix}.{key} harus berupa string.")
+    elif not isinstance(value.get("detailed_description"), str) or not value.get("detailed_description", "").strip():
+        errors.append("Ref2VA.detailed_description atau Ref2VA.shots wajib diisi.")
+    return errors
+
+
+def _ref2va_clock_to_seconds(minutes: str, seconds: str, milliseconds: str | None) -> float:
+    fraction = (milliseconds or "").ljust(3, "0")[:3]
+    return float(int(minutes) * 60 + int(seconds)) + (int(fraction) / 1000 if fraction else 0.0)
+
+
+def _ref2va_format_cut_time(value) -> str:
+    try:
+        total = max(0.0, float(value))
+    except (TypeError, ValueError):
+        total = 0.0
+    minutes = int(total // 60)
+    seconds = total - (minutes * 60)
+    return f"{minutes:02d}:{seconds:06.3f}"
+
+
+def _ref2va_format_range_time(value) -> str:
+    try:
+        total = max(0.0, float(value))
+    except (TypeError, ValueError):
+        total = 0.0
+    return f"{total:.2f}"
+
+
+def _empty_ref2va_shot(start: float, end: float, text: str = "") -> dict:
+    return {
+        "shot_id": "Shot 1",
+        "start": float(start),
+        "end": float(end),
+        "visual": str(text or "").strip(),
+        "action": "",
+        "camera": "",
+        "dialogue": "",
+        "diegetic_sound": "",
+    }
+
+
+def _match_ref2va_shot_range(text: str):
+    match = _REF2VA_SHOT_RANGE_PATTERN.match(text)
+    if match:
+        return float(match.group(1)), float(match.group(2)), match
+    match = _REF2VA_SHOT_ID_RANGE_PATTERN.match(text)
+    if match:
+        return (
+            float(match.group(1).replace(",", ".")),
+            float(match.group(2).replace(",", ".")),
+            match,
+        )
+    return None
+
+
+def parse_ref2va_detailed_description(text: str, duration: float = 5.0) -> dict:
+    """Parse Ref2VA timeline markers into the editor's shared shot model.
+
+    Ref2VA persists ``detailed_description`` as one string. This parser is an
+    authoring adapter only: it accepts the canonical ``From X to Y seconds``
+    markers and the older ``At MM:SS.mmm`` examples, while keeping all
+    prose inside the visual field so an existing scene is not rewritten.
+    """
+    source = str(text or "").replace("\r\n", "\n").strip()
+    try:
+        fallback_duration = max(0.0, float(duration or 0.0)) or 5.0
+    except (TypeError, ValueError):
+        fallback_duration = 5.0
+    markers = list(_REF2VA_SHOT_MARKER_PATTERN.finditer(source))
+    if not markers:
+        leading_range = re.search(
+            r"(?i)(?:From\s+\d+(?:\.\d+)?\s+to\s+\d+(?:\.\d+)?\s+seconds?|"
+            r"Dari\s+\d+(?:[.,]\d+)?\s+hingga\s+\d+(?:[.,]\d+)?\s+detik)",
+            source,
+        )
+        if leading_range:
+            prefix = source[:leading_range.start()].strip()
+            range_value = _match_ref2va_shot_range(source[leading_range.start():])
+            if range_value:
+                start, end, range_match = range_value
+                body = source[leading_range.start() + range_match.end():].strip()
+                return {
+                    "style_opening": prefix,
+                    "shots": [_empty_ref2va_shot(start, end, body)],
+                    "has_markers": False,
+                }
+        return {
+            "style_opening": "",
+            "shots": [_empty_ref2va_shot(0.0, fallback_duration, source)],
+            "has_markers": False,
+        }
+
+    style_opening = source[:markers[0].start()].strip()
+    parsed = []
+    for index, marker in enumerate(markers):
+        next_start = markers[index + 1].start() if index + 1 < len(markers) else len(source)
+        body = source[marker.end():next_start].strip()
+        start = 0.0 if index == 0 else None
+        end = None
+
+        range_value = _match_ref2va_shot_range(body)
+        if range_value:
+            start, end, range_match = range_value
+            body = body[range_match.end():].strip()
+        else:
+            at_match = _REF2VA_SHOT_AT_PATTERN.match(body)
+            if at_match:
+                start = _ref2va_clock_to_seconds(
+                    at_match.group(1), at_match.group(2), at_match.group(3)
+                )
+                body = body[at_match.end():].strip()
+
+        parsed.append({
+            "start": start,
+            "end": end,
+            "text": body,
+        })
+
+    previous_end = 0.0
+    shots = []
+    for index, item in enumerate(parsed):
+        start = item["start"]
+        if start is None:
+            start = previous_end if index else 0.0
+        end = item["end"]
+        if end is None:
+            next_start = parsed[index + 1]["start"] if index + 1 < len(parsed) else None
+            end = next_start if next_start is not None else fallback_duration
+        if end < start:
+            end = start
+        shot = _empty_ref2va_shot(start, end, item["text"])
+        shot["shot_id"] = f"Shot {index + 1}"
+        shots.append(shot)
+        previous_end = end
+
+    return {
+        "style_opening": style_opening,
+        "shots": shots or [_empty_ref2va_shot(0.0, fallback_duration)],
+        "has_markers": True,
+    }
+
+
+def normalize_ref2va_authoring_prompt(value, duration: float = 5.0):
+    """Return the canonical Ref2VA authoring shape with shared ``shots[]``.
+
+    Ref2VA runtime still consumes ``detailed_description``, but R2V scene
+    files and the interactive editor use ``style_opening`` plus the shared
+    shot cards. This adapter also accepts a legacy/generated six-section
+    object so an older LLM response cannot be persisted in the old shape.
+    """
+    result = unwrap_prompt_value(value)
+    if not isinstance(result, dict):
+        return result
+    result = copy.deepcopy(result)
+    if not isinstance(result.get("shots"), list):
+        parsed = parse_ref2va_detailed_description(
+            result.get("detailed_description", ""),
+            duration=duration,
+        )
+        result["style_opening"] = parsed.get("style_opening", "")
+        result["shots"] = parsed.get("shots", [])
+    else:
+        result["style_opening"] = str(result.get("style_opening", "") or "").strip()
+    result.pop("detailed_description", None)
+    for shot in result.get("shots", []):
+        if not isinstance(shot, dict):
+            continue
+        try:
+            start = float(shot.get("start", 0.0))
+            end = float(shot.get("end", start))
+        except (TypeError, ValueError):
+            start, end = 0.0, 0.001
+        if end <= start:
+            shot["end"] = start + 0.001
+    return result
+
+
+def serialize_ref2va_detailed_description(
+    style_opening: str,
+    shots: list[dict] | None,
+) -> str:
+    """Compile shared shot cards into the Ref2VA string contract."""
+    parts = []
+    opening = str(style_opening or "").strip()
+    if opening:
+        parts.append(opening)
+    for index, shot in enumerate(shots or [], start=1):
+        if not isinstance(shot, dict):
+            continue
+        fields = (
+            shot.get("visual"),
+            shot.get("action"),
+            shot.get("camera"),
+            shot.get("dialogue"),
+            shot.get("diegetic_sound"),
+        )
+        body = " ".join(str(value or "").strip() for value in fields if str(value or "").strip())
+        if not body:
+            continue
+        marker = (
+            f"[Shot {index}] From {_ref2va_format_range_time(shot.get('start', 0.0))} "
+            f"to {_ref2va_format_range_time(shot.get('end', 0.0))} seconds,"
+        )
+        parts.append(f"{marker} {body}".strip())
+    return "\n\n".join(parts).strip()
+
+
+def validate_ref2va_shot_timeline(text: str, duration: float | None = None) -> list[str]:
+    """Validate the canonical shot markers emitted by the Ref2VA editor."""
+    source = str(text or "").replace("\r\n", "\n").strip()
+    markers = list(_REF2VA_SHOT_MARKER_PATTERN.finditer(source))
+    if not markers:
+        return ["Ref2VA.detailed_description harus memiliki marker [Shot 1]."]
+
+    errors = []
+    previous_start = -1.0
+    previous_end = None
+    for index, marker in enumerate(markers):
+        number = int(marker.group(1))
+        if number != index + 1:
+            errors.append(
+                f"Marker Ref2VA harus berurutan; ditemukan [Shot {number}] pada posisi {index + 1}."
+            )
+        next_start = markers[index + 1].start() if index + 1 < len(markers) else len(source)
+        body = source[marker.end():next_start].strip()
+        start = 0.0 if index == 0 else None
+        end = None
+        range_match = _REF2VA_SHOT_RANGE_PATTERN.match(body)
+        at_match = _REF2VA_SHOT_AT_PATTERN.match(body)
+        if range_match:
+            start = float(range_match.group(1))
+            end = float(range_match.group(2))
+            body = body[range_match.end():].strip()
+        elif index > 0:
+            if not at_match:
+                errors.append(
+                    f"[Shot {index + 1}] harus memiliki rentang waktu From X to Y seconds "
+                    "atau format waktu lama At MM:SS.mmm."
+                )
+            else:
+                start = _ref2va_clock_to_seconds(
+                    at_match.group(1), at_match.group(2), at_match.group(3)
+                )
+                body = body[at_match.end():].strip()
+        elif at_match:
+            errors.append("[Shot 1] harus menggunakan rentang waktu From X to Y seconds atau tanpa prefix waktu lama.")
+            body = body[at_match.end():].strip()
+        if start is not None:
+            if index > 0 and start <= previous_start:
+                errors.append(f"Waktu [Shot {index + 1}] harus lebih besar dari shot sebelumnya.")
+            if previous_end is not None and start < previous_end:
+                errors.append(f"Rentang waktu [Shot {index + 1}] bertumpang tindih dengan shot sebelumnya.")
+            if duration is not None and start > max(0.0, float(duration)):
+                errors.append(f"Waktu [Shot {index + 1}] berada di luar durasi video.")
+            previous_start = start
+        if end is not None:
+            if start is None or end <= start:
+                errors.append(f"Rentang waktu [Shot {index + 1}] tidak valid.")
+            if duration is not None and end > max(0.0, float(duration)):
+                errors.append(f"Akhir waktu [Shot {index + 1}] berada di luar durasi video.")
+            previous_end = end
+        if not body:
+            errors.append(f"[Shot {index + 1}] harus memiliki deskripsi.")
     return errors
 
 
@@ -125,6 +412,7 @@ def validate_ref2va_reference_tokens(
 ) -> list[str]:
     """Ensure Ref2VA references mentioned in text exist in the active scene."""
     errors = []
+    value = unwrap_prompt_value(value)
     if not isinstance(value, dict):
         return ["Ref2VA prompt harus berupa object JSON."]
     allowed = {f"Picture {index}" for index in range(1, max(0, int(image_count)) + 1)}
@@ -135,8 +423,12 @@ def validate_ref2va_reference_tokens(
         # carried by Video 1; it is not a fourth uploaded audio slot.
         allowed.add("Audio 4")
     found = set()
-    for section in REF2VA_SECTION_KEYS:
-        text = value.get(section, "")
+    section_values = {section: value.get(section, "") for section in REF2VA_SECTION_KEYS}
+    if isinstance(value.get("shots"), list):
+        section_values["detailed_description"] = serialize_ref2va_detailed_description(
+            value.get("style_opening", ""), value.get("shots", [])
+        )
+    for text in section_values.values():
         if not isinstance(text, str):
             continue
         for kind, number in _REF2VA_REFERENCE_PATTERN.findall(text):
@@ -147,34 +439,16 @@ def validate_ref2va_reference_tokens(
     return list(dict.fromkeys(errors))
 
 
-def protect_ref2va_tokens(text: str) -> tuple[str, dict[str, str]]:
-    """Replace angle-bracket technical tokens with stable placeholders."""
-    replacements: dict[str, str] = {}
-
-    def replace(match):
-        token = match.group(0)
-        placeholder = f"__REF2VA_TOKEN_{len(replacements) + 1:03d}__"
-        replacements[placeholder] = token
-        return placeholder
-
-    return _REF2VA_TOKEN_PATTERN.sub(replace, str(text or "")), replacements
-
-
-def restore_ref2va_tokens(text: str, replacements: dict[str, str]) -> str:
-    """Restore protected technical tokens and fail if a token disappeared."""
-    result = str(text or "")
-    missing = [placeholder for placeholder in replacements if placeholder not in result]
-    if missing:
-        raise ValueError("Translasi menghilangkan token teknis Ref2VA: " + ", ".join(missing))
-    for placeholder, token in replacements.items():
-        result = result.replace(placeholder, token)
-    return result
-
-
 def serialize_ref2va_prompt(value) -> str:
+    value = unwrap_prompt_value(value)
     if not isinstance(value, dict):
         return str(value or "").strip()
-    return "\n\n".join(f"{key}:\n{value.get(key, '')}" for key in REF2VA_SECTION_KEYS).strip()
+    sections = dict(value)
+    if isinstance(value.get("shots"), list):
+        sections["detailed_description"] = serialize_ref2va_detailed_description(
+            value.get("style_opening", ""), value.get("shots", [])
+        )
+    return "\n\n".join(f"{key}:\n{sections.get(key, '')}" for key in REF2VA_SECTION_KEYS).strip()
 
 
 def empty_structured_prompt(mode: str) -> dict:
@@ -195,101 +469,81 @@ def empty_structured_prompt(mode: str) -> dict:
     return value
 
 
-def default_structured_prompt(mode: str) -> dict:
-    """Return a non-empty, saveable MiniMax H3 T2VA/I2VA prompt."""
+def default_structured_prompt(mode: str, language: str = "en") -> dict:
+    """Return a non-empty, saveable English MiniMax H3 prompt."""
     value = empty_structured_prompt(mode)
+    visual = "A clear cinematic scene with a primary subject and coherent composition."
+    action = "The primary subject moves naturally within the scene."
+    camera = "The camera uses a stable medium shot with smooth movement."
+    dialogue = "No dialogue."
+    diegetic_sound = "Natural environmental sound follows the visible action."
+    overall_soundscape = "A coherent cinematic soundscape follows the environment and visible action."
     value["shots"] = [{
         "shot_id": "Shot 1",
         "start": 0.0,
         "end": 5.0,
         "visual": (
-            f"{I2VA_FIRST_FRAME_DETAIL_INSTRUCTION} "
-            "A clear cinematic scene with a primary subject and coherent composition."
+            f"{I2VA_FIRST_FRAME_DETAIL_INSTRUCTION} {visual}"
             if str(mode).upper() == "I2VA"
-            else "A clear cinematic scene with a primary subject and coherent composition."
+            else visual
         ),
-        "action": "The primary subject moves naturally within the scene.",
-        "camera": "The camera uses a stable medium shot with smooth movement.",
-        "dialogue": "No dialogue.",
-        "diegetic_sound": "Natural environmental sound follows the visible action.",
+        "action": action,
+        "camera": camera,
+        "dialogue": dialogue,
+        "diegetic_sound": diegetic_sound,
     }]
-    value["overall_soundscape"] = "A coherent cinematic soundscape follows the environment and visible action."
+    value["overall_soundscape"] = overall_soundscape
     value["non_diegetic_music"] = "N/A"
     return value
 
 
-def structured_prompt_entry(mode: str, id_new=None, en: dict | None = None) -> dict:
+def structured_prompt_entry(mode: str, value: dict | None = None) -> dict:
+    """Build the canonical direct English value."""
     mode = "I2VA" if str(mode).upper() == "I2VA" else "T2VA"
-    if not isinstance(id_new, dict):
-        id_new = empty_structured_prompt(mode)
-    return {
-        "id_old": copy.deepcopy(id_new),
-        "id_new": copy.deepcopy(id_new),
-        "en": en if isinstance(en, dict) else empty_structured_prompt(mode),
-    }
+    if isinstance(value, dict):
+        return copy.deepcopy(value)
+    return empty_structured_prompt(mode)
 
 
 def enforce_i2va_first_shot_visual(entry: dict) -> dict:
-    """Ensure the bilingual first-frame wording without discarding Shot 1."""
-    result = copy.deepcopy(entry or {})
+    """Ensure the English first-frame wording without discarding Shot 1."""
+    result = unwrap_prompt_value(entry)
     if not isinstance(result, dict):
         return result
-    first_sentences = {
-        "id_new": I2VA_FIRST_SHOT_VISUAL_ID,
-        "en": I2VA_FIRST_SHOT_VISUAL_EN,
-    }
-    for localized_key, first_sentence in first_sentences.items():
-        localized = result.get(localized_key)
-        shots = localized.get("shots") if isinstance(localized, dict) else None
-        if not isinstance(shots, list):
-            continue
+    shots = result.get("shots") if isinstance(result, dict) else None
+    if isinstance(shots, list):
         for shot in shots:
             if isinstance(shot, dict) and shot.get("shot_id") == "Shot 1":
                 visual = str(shot.get("visual", "")).strip()
-                if first_sentence.lower() not in visual.lower():
-                    shot["visual"] = f"{first_sentence}. {visual}".strip()
+                if I2VA_FIRST_SHOT_VISUAL_EN.lower() not in visual.lower():
+                    shot["visual"] = f"{I2VA_FIRST_SHOT_VISUAL_EN}. {visual}".strip()
                 break
-    id_new = result.get("id_new")
-    if isinstance(id_new, dict):
-        result["id_old"] = copy.deepcopy(id_new)
     return result
 
 
 def ensure_i2va_frame_instructions(entry: dict, end_time: float, include_last_frame: bool = False) -> dict:
-    """Repair the mandatory first/last-frame sentences without replacing the prompt."""
-    result = copy.deepcopy(entry or {})
-    first_sentences = {
-        "en": I2VA_FIRST_SHOT_VISUAL_EN,
-        "id_new": I2VA_FIRST_SHOT_VISUAL_ID,
-    }
-    last_sentences = {
-        "en": f"At {float(end_time):.2f} seconds, <Picture 2> is the last frame of the video",
-        "id_new": f"Pada {float(end_time):.2f} detik, <Picture 2> adalah frame terakhir video",
-    }
-    for localized_key, first_sentence in first_sentences.items():
-        localized = result.get(localized_key)
-        if not isinstance(localized, dict):
-            continue
-        shots = localized.get("shots")
-        if not isinstance(shots, list):
-            continue
-        # Remove stale final-frame instructions first. This makes changing
-        # duration or unchecking the final image fully idempotent.
-        for shot in shots:
-            if isinstance(shot, dict):
-                visual = _I2VA_LAST_FRAME_SENTENCE_PATTERN.sub("", str(shot.get("visual", "")))
-                shot["visual"] = re.sub(r"\s{2,}", " ", visual).strip()
-        first_shot = next((shot for shot in shots if isinstance(shot, dict) and shot.get("shot_id") == "Shot 1"), None)
-        if first_shot is not None and first_sentence.lower() not in str(first_shot.get("visual", "")).lower():
-            first_shot["visual"] = f"{first_sentence}. {str(first_shot.get('visual', '')).strip()}".strip()
-        if include_last_frame:
-            last_shot = next((shot for shot in reversed(shots) if isinstance(shot, dict)), None)
-            last_sentence = last_sentences[localized_key]
-            if last_shot is not None and last_sentence.lower() not in str(last_shot.get("visual", "")).lower():
-                visual = str(last_shot.get("visual", "")).strip()
-                if visual and visual[-1] not in ".!?":
-                    visual += "."
-                last_shot["visual"] = f"{visual} {last_sentence}".strip()
+    """Repair the mandatory English first/last-frame sentences."""
+    result = unwrap_prompt_value(entry)
+    if not isinstance(result, dict):
+        return {}
+    shots = result.get("shots")
+    if not isinstance(shots, list):
+        return result
+    for shot in shots:
+        if isinstance(shot, dict):
+            visual = _I2VA_LAST_FRAME_SENTENCE_PATTERN.sub("", str(shot.get("visual", "")))
+            shot["visual"] = re.sub(r"\s{2,}", " ", visual).strip()
+    first_shot = next((shot for shot in shots if isinstance(shot, dict) and shot.get("shot_id") == "Shot 1"), None)
+    if first_shot is not None and I2VA_FIRST_SHOT_VISUAL_EN.lower() not in str(first_shot.get("visual", "")).lower():
+        first_shot["visual"] = f"{I2VA_FIRST_SHOT_VISUAL_EN}. {str(first_shot.get('visual', '')).strip()}".strip()
+    if include_last_frame:
+        last_shot = next((shot for shot in reversed(shots) if isinstance(shot, dict)), None)
+        last_sentence = f"At {float(end_time):.2f} seconds, <Picture 2> is the last frame of the video"
+        if last_shot is not None and last_sentence.lower() not in str(last_shot.get("visual", "")).lower():
+            visual = str(last_shot.get("visual", "")).strip()
+            if visual and visual[-1] not in ".!?":
+                visual += "."
+            last_shot["visual"] = f"{visual} {last_sentence}".strip()
     return result
 
 
@@ -333,14 +587,14 @@ def validate_i2va_shot_timeline(value: dict, end_time: float) -> list[str]:
 def validate_i2va_frame_instructions(entry: dict, end_time: float, include_last_frame: bool = False) -> list[str]:
     """Validate mandatory frame sentences in the English prompt payload."""
     errors = []
-    localized = entry.get("en") if isinstance(entry, dict) else None
+    localized = unwrap_prompt_value(entry)
     if not isinstance(localized, dict):
-        return ["positive_prompt.en harus berupa object JSON."]
+        return ["positive_prompt harus berupa object JSON."]
     if str(localized.get("mode", "")).upper() != "I2VA":
-        errors.append("positive_prompt.en.mode harus I2VA.")
+        errors.append("positive_prompt.mode harus I2VA.")
     shots = localized.get("shots")
     if not isinstance(shots, list) or not shots:
-        return ["positive_prompt.en.shots wajib berisi minimal satu shot."]
+        return ["positive_prompt.shots wajib berisi minimal satu shot."]
     errors.extend(validate_i2va_shot_timeline(localized, end_time))
     first_shot = next((shot for shot in shots if isinstance(shot, dict) and shot.get("shot_id") == "Shot 1"), None)
     if first_shot is None or I2VA_FIRST_SHOT_VISUAL_EN.lower() not in str(first_shot.get("visual", "")).lower():
@@ -388,43 +642,22 @@ def _recover_nested_legacy_prompt(value):
 
 
 def validate_structured_prompt(value, expected_mode: str | None = None) -> list[str]:
+    value = unwrap_prompt_value(value)
     errors: list[str] = []
     if not isinstance(value, dict):
         return ["positive_prompt harus berupa object."]
-    for key in ("id_old", "id_new", "en"):
-        if key not in value:
-            errors.append(f"positive_prompt.{key} wajib ada.")
-    en = value.get("en")
-    if not isinstance(en, dict):
-        errors.append("positive_prompt.en harus berupa object JSON nested.")
-        return errors
-    mode = str(en.get("mode", "")).upper()
+    mode = str(value.get("mode", "")).upper()
     if mode not in {"T2VA", "I2VA"}:
-        errors.append("positive_prompt.en.mode harus T2VA atau I2VA.")
+        errors.append("positive_prompt.mode harus T2VA atau I2VA.")
     if expected_mode and mode != str(expected_mode).upper():
         errors.append(f"mode harus {expected_mode}.")
-
-    for key in ("id_old", "id_new"):
-        localized = value.get(key)
-        if not isinstance(localized, dict):
-            errors.append(f"positive_prompt.{key} harus berupa object JSON nested.")
-            continue
-        localized_mode = str(localized.get("mode", "")).upper()
-        if localized_mode != mode:
-            errors.append(f"positive_prompt.{key}.mode harus {mode}.")
-        if localized.get("shots") is not None and not isinstance(localized.get("shots"), list):
-            errors.append(f"positive_prompt.{key}.shots harus berupa array.")
-    if isinstance(value.get("id_old"), dict) and isinstance(value.get("id_new"), dict):
-        if value["id_old"] != value["id_new"]:
-            errors.append("positive_prompt.id_old harus sama persis dengan positive_prompt.id_new.")
-
-    shots = en.get("shots")
+    shots = value.get("shots")
     if not isinstance(shots, list) or not shots:
-        errors.append("positive_prompt.en.shots wajib berupa array berisi minimal satu shot.")
+        errors.append("positive_prompt.shots wajib berupa array berisi minimal satu shot.")
     else:
         previous_end = 0.0
         for index, shot in enumerate(shots):
-            prefix = f"positive_prompt.en.shots[{index}]"
+            prefix = f"positive_prompt.shots[{index}]"
             if not isinstance(shot, dict):
                 errors.append(f"{prefix} harus berupa object.")
                 continue
@@ -443,12 +676,12 @@ def validate_structured_prompt(value, expected_mode: str | None = None) -> list[
                     errors.append(f"{prefix}.{key} harus berupa string.")
 
     for key in REQUIRED_AUDIO_KEYS:
-        if not isinstance(en.get(key), str) or not str(en.get(key)).strip():
-            errors.append(f"positive_prompt.en.{key} wajib berupa string tidak kosong.")
+        if not isinstance(value.get(key), str) or not str(value.get(key)).strip():
+            errors.append(f"positive_prompt.{key} wajib berupa string tidak kosong.")
     if mode == "I2VA":
-        reference = en.get("reference")
+        reference = value.get("reference")
         if not isinstance(reference, dict):
-            errors.append("I2VA wajib memiliki positive_prompt.en.reference.")
+            errors.append("I2VA wajib memiliki positive_prompt.reference.")
         else:
             if reference.get("picture") != "Picture 1":
                 errors.append("I2VA reference.picture harus Picture 1.")
@@ -458,13 +691,14 @@ def validate_structured_prompt(value, expected_mode: str | None = None) -> list[
                 errors.append("I2VA reference.time harus 0.0.")
             if reference.get("instruction") != "fully referenced":
                 errors.append("I2VA reference.instruction tidak valid.")
-    elif "reference" in en:
+    elif "reference" in value:
         errors.append("T2VA tidak boleh memiliki field reference.")
     return errors
 
 
 def serialize_structured_prompt(value) -> str:
     """Convert the nested JSON prompt to the exact MiniMax workflow text."""
+    value = unwrap_prompt_value(value)
     if not isinstance(value, dict):
         return str(value or "").strip()
     mode = str(value.get("mode", "T2VA")).upper()
@@ -497,97 +731,55 @@ def serialize_structured_prompt(value) -> str:
 
 
 def prompt_entry_to_display(value) -> str:
-    if isinstance(value, dict) and isinstance(value.get("en"), dict):
-        return serialize_structured_prompt(value["en"])
+    value = unwrap_prompt_value(value)
     if isinstance(value, dict):
-        return str(value.get("id_new", "") or value.get("en", "")).strip()
+        if "mode" in value or "shots" in value or any(key in value for key in REF2VA_SECTION_KEYS):
+            return serialize_structured_prompt(value) if str(value.get("mode", "")).upper() in {"T2VA", "I2VA"} else serialize_ref2va_prompt(value)
+        return str(value.get("prompt", "") or "").strip()
     return str(value or "").strip()
 
 
 def parse_structured_response(payload, expected_mode: str) -> tuple[dict | None, list[str]]:
-    """Accept the strict nested response shape used by the MiniMax button."""
-    if not isinstance(payload, dict) or set(payload.keys()) != {"positive_prompt"}:
-        return None, ["Response MiniMax harus object dengan satu key positive_prompt."]
-    entry = copy.deepcopy(payload.get("positive_prompt"))
+    """Accept a direct MiniMax workflow object or its old wrapper."""
+    if not isinstance(payload, dict):
+        return None, ["Response MiniMax harus berupa object JSON."]
+    entry = copy.deepcopy(payload.get("positive_prompt", payload.get("en", payload)))
+    entry = unwrap_prompt_value(entry)
     # Some models emit shot_id as 1, 2, ... although the workflow schema uses
     # the textual identifiers Shot 1, Shot 2, ... . Normalize that harmless
     # representation before strict validation.
     if isinstance(entry, dict):
-        for localized_key in ("en", "id_new", "id_old"):
-            localized = entry.get(localized_key)
-            if isinstance(localized, dict) and isinstance(localized.get("shots"), list):
-                for index, shot in enumerate(localized["shots"], start=1):
-                    if isinstance(shot, dict):
-                        shot_id = shot.get("shot_id")
-                        if isinstance(shot_id, (int, float)) and not isinstance(shot_id, bool):
-                            shot["shot_id"] = f"Shot {int(shot_id)}"
-                        elif not isinstance(shot_id, str) or not shot_id.strip():
-                            shot["shot_id"] = f"Shot {index}"
+        if isinstance(entry.get("shots"), list):
+            for index, shot in enumerate(entry["shots"], start=1):
+                if isinstance(shot, dict):
+                    shot_id = shot.get("shot_id")
+                    if isinstance(shot_id, (int, float)) and not isinstance(shot_id, bool):
+                        shot["shot_id"] = f"Shot {int(shot_id)}"
+                    elif not isinstance(shot_id, str) or not shot_id.strip():
+                        shot["shot_id"] = f"Shot {index}"
     errors = validate_structured_prompt(entry, expected_mode=expected_mode)
     if errors:
         return None, errors
-    normalized = dict(entry)
-    normalized["id_old"] = copy.deepcopy(normalized.get("id_new", {}))
-    return normalized, []
+    return unwrap_prompt_value(entry), []
 
 
 def normalize_minimax_prompt_payload(data: dict, mode: str) -> dict:
-    """Return a MiniMax payload with the nested prompt schema."""
+    """Return a MiniMax payload with the canonical direct prompt schema."""
     result = dict(data or {})
-    entry = result.get("positive_prompt")
-    if isinstance(entry, dict) and isinstance(entry.get("en"), dict):
-        # MiniMax uses one Indonesian source identity.  Repair legacy or
-        # manually edited payloads so the two ids can never diverge.
-        normalized_entry = dict(entry)
-        synced_id = normalized_entry.get("id_new")
-        if not isinstance(synced_id, dict):
-            synced_id = normalized_entry.get("id_old")
-        if not isinstance(synced_id, dict):
-            legacy_text = str(synced_id or "").strip()
-            synced_id = empty_structured_prompt(mode)
-            if legacy_text:
-                synced_id["shots"] = [{
-                    "shot_id": "Shot 1", "start": 0.0, "end": 1.0,
-                    "visual": legacy_text, "action": "", "camera": "",
-                    "dialogue": "", "diegetic_sound": "",
-                }]
-                synced_id["overall_soundscape"] = "N/A"
-                synced_id["non_diegetic_music"] = "N/A"
-        synced_id = _recover_nested_legacy_prompt(synced_id)
-        # Preserve the previous id_old as the runtime comparison baseline.
-        # Replacing it with id_new here makes an edited prompt look already
-        # synchronized and prevents runtime translation from regenerating en.
-        previous_id_old = _recover_nested_legacy_prompt(normalized_entry.get("id_old"))
-        normalized_entry["id_old"] = copy.deepcopy(
-            previous_id_old if isinstance(previous_id_old, dict) else synced_id
-        )
-        normalized_entry["id_new"] = copy.deepcopy(synced_id)
-        normalized_entry["en"] = _recover_nested_legacy_prompt(normalized_entry["en"])
-        result["positive_prompt"] = normalized_entry
-        return result
-    if isinstance(entry, dict):
-        id_new = entry.get("id_new") or entry.get("id_old") or ""
-        old_en = entry.get("en", "")
-    else:
-        id_new = str(entry or "")
-        old_en = ""
+    entry = unwrap_prompt_value(result.get("positive_prompt"))
+    entry = _recover_nested_legacy_prompt(entry)
     nested = empty_structured_prompt(mode)
-    if isinstance(id_new, str) and id_new.strip():
+    if isinstance(entry, dict) and entry.get("mode"):
+        nested = copy.deepcopy(entry)
+    elif isinstance(entry, dict) and isinstance(entry.get("shots"), list):
+        nested = copy.deepcopy(entry)
+    elif isinstance(entry, str) and entry.strip():
         nested["shots"] = [{
             "shot_id": "Shot 1", "start": 0.0, "end": 1.0,
-            "visual": id_new.strip(), "action": "", "camera": "",
+            "visual": entry.strip(), "action": "", "camera": "",
             "dialogue": "", "diegetic_sound": "",
         }]
         nested["overall_soundscape"] = "N/A"
         nested["non_diegetic_music"] = "N/A"
-        id_new = nested
-    if isinstance(old_en, str) and old_en.strip():
-        nested["shots"] = [{
-            "shot_id": "Shot 1", "start": 0.0, "end": 1.0,
-            "visual": old_en.strip(), "action": "", "camera": "",
-            "dialogue": "", "diegetic_sound": "",
-        }]
-        nested["overall_soundscape"] = "N/A"
-        nested["non_diegetic_music"] = "N/A"
-    result["positive_prompt"] = structured_prompt_entry(mode, id_new=id_new, en=nested)
+    result["positive_prompt"] = nested
     return result

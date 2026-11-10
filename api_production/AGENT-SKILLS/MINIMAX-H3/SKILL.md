@@ -13,6 +13,7 @@ Portable to any agent that can read local files; no external API calls, MiniMax 
 2. For base text/keyframe modes, read `references/base-en.txt` and follow its final prompt structure.
 3. For full-reference mode, read `references/ref-en.txt` and follow its six-section rewrite format.
 4. Preserve the exact field names, section order, labels, and timing notation from the selected guide.
+5. For runtime JSON, write the prompt value directly in English. Do not invent language wrappers or translation metadata.
 
 ## Base Modes
 
@@ -23,9 +24,11 @@ Portable to any agent that can read local files; no external API calls, MiniMax 
 
 Use `integrated_multimodal_description`, `overall_soundscape`, and `non_diegetic_music` in the order shown in `references/base-en.txt`.
 
+For T2VA, I2VA, and R2V authoring, use the shared `shots[]` item shape: `shot_id`, numeric `start`/`end`, `visual`, `action`, `camera`, `dialogue`, and `diegetic_sound`. R2V authoring uses the same `shots[]` shape and compiles it to Ref2VA `detailed_description` for runtime. `minimax-h3_r2v-panjang` keeps four R2V prompt objects in `prompts[]`; its runtime adds the previous process last frame after the global Picture references for processes 2–4.
+
 ## Full-Reference Mode
 
-Ref2VA rewrites use `subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, `overall_soundscape`, and `non_diegetic_music` in that order. Reference labels stay consistent across all sections.
+Ref2VA runtime rewrites use `subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, `overall_soundscape`, and `non_diegetic_music` in that order. For R2V authoring, store `style_opening` and the shared `shots[]` cards instead; the application compiles them into runtime `detailed_description`. Reference labels stay consistent across all sections.
 
 Read `references/ref-en.txt` for label rules, retention analysis, and complete examples.
 

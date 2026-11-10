@@ -25,19 +25,9 @@ GEMINI_TTS_MODEL_OPTIONS = [
 ]
 GEMINI_TTS_MODE_DEFAULT = "structured"
 GEMINI_VOICE_NAME_BY_CHARACTER = {
-    "yetty": "Kore",
-    "nilasari": "Kore",
-    "dany_saputra": "Charon",
-    "dakocan": "Puck",
-    "arkana": "Fenrir",
-    "arkana_arab": "Fenrir",
-    "candy": "Leda",
     "lily": "Leda",
-    "asna": "Leda",
     "lily_ngaji": "Leda",
     "lily_arab": "Leda",
-    "finn": "Puck",
-    "kevin": "Charon",
 }
 
 

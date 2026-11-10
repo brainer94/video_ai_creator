@@ -1,5 +1,6 @@
 import argparse
 import copy
+import math
 from pathlib import Path
 import sys
 
@@ -22,18 +23,22 @@ SCENE_TYPE_CHOICES = [
     "minimax-h3_i2v-panjang",
     "minimax-h3_s2v",
     "minimax-h3_r2v",
+    "minimax-h3_r2v-panjang",
     "i2v",
     "image_pan",
     "image_zoom",
 ]
-PROJECT_MODEL_CHOICES = [
-    "gemini-3.1-flash-lite",
-    "gemini-3.5-flash",
-]
-PROMPT_PROVIDER_CHOICES = [
-    "gemini",
-    "hipfire",
-]
+
+
+def parse_duration(value: str) -> int | float:
+    """Parse seconds while preserving integer values for existing CLI output."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("Durasi harus berupa angka.") from exc
+    if not math.isfinite(parsed) or parsed < 0:
+        raise argparse.ArgumentTypeError("Durasi harus berupa angka finite yang tidak negatif.")
+    return int(parsed) if parsed.is_integer() else parsed
 VOICE_PROVIDER_CHOICES = [
     "gemini",
 ]
@@ -55,16 +60,8 @@ def build_project_settings(args) -> dict:
         "width": int(args.width),
         "height": int(args.height),
     }
-    settings["comfyui_server"] = str(args.comfyui_server or settings["comfyui_server"]).strip()
     settings["prompt_generation"] = {
-        "provider": str(args.prompt_generation_provider or settings["prompt_generation"]["provider"]).strip().lower(),
         "model": str(args.prompt_generation_model or settings["prompt_generation"]["model"]).strip(),
-        "host": str(args.prompt_generation_host or settings["prompt_generation"]["host"]).strip(),
-        "port": int(args.prompt_generation_port or settings["prompt_generation"]["port"]),
-    }
-    settings["translate"] = {
-        "provider": settings["prompt_generation"]["provider"],
-        "model": settings["prompt_generation"]["model"],
     }
     settings["voice"] = {
         "voice_provider": str(args.voice_provider or settings["voice"]["voice_provider"]).strip(),
@@ -99,7 +96,7 @@ def command_create_scene(args) -> int:
         scene_title=args.title or "",
         scene_description=args.scene_description or "",
         voice_text=args.voice_text or "",
-        duration=int(args.duration),
+        duration=args.duration,
     )
     print(f"Scene created: {scene_dir}")
     return 0
@@ -120,37 +117,9 @@ def build_parser() -> argparse.ArgumentParser:
     create_project_parser.add_argument("--width", type=int, default=480, help="Lebar video project.")
     create_project_parser.add_argument("--height", type=int, default=848, help="Tinggi video project.")
     create_project_parser.add_argument(
-        "--comfyui-server",
-        default=DEFAULT_PROJECT_SETTINGS["comfyui_server"],
-        help="Alamat ComfyUI server, contoh: nextgenserver:8188",
-    )
-    create_project_parser.add_argument(
-        "--prompt-generation-provider",
-        choices=PROMPT_PROVIDER_CHOICES,
-        default=DEFAULT_PROJECT_SETTINGS["prompt_generation"]["provider"],
-        help="Provider untuk prompt generation project.",
-    )
-    create_project_parser.add_argument(
         "--prompt-generation-model",
         default=DEFAULT_PROJECT_SETTINGS["prompt_generation"]["model"],
         help="Model untuk prompt generation project.",
-    )
-    create_project_parser.add_argument(
-        "--prompt-generation-host",
-        default=DEFAULT_PROJECT_SETTINGS["prompt_generation"]["host"],
-        help="Host Hipfire untuk prompt generation.",
-    )
-    create_project_parser.add_argument(
-        "--prompt-generation-port",
-        type=int,
-        default=DEFAULT_PROJECT_SETTINGS["prompt_generation"]["port"],
-        help="Port Hipfire untuk prompt generation.",
-    )
-    create_project_parser.add_argument(
-        "--translate-model",
-        choices=PROJECT_MODEL_CHOICES,
-        default=DEFAULT_PROJECT_SETTINGS["translate"]["model"],
-        help="Model untuk translate project.",
     )
     create_project_parser.add_argument(
         "--voice-provider",
@@ -185,7 +154,12 @@ def build_parser() -> argparse.ArgumentParser:
     create_scene_parser.add_argument("--title", default="", help="Judul scene.")
     create_scene_parser.add_argument("--scene-description", default="", help="Deskripsi scene.")
     create_scene_parser.add_argument("--voice-text", default="", help="Voice text scene.")
-    create_scene_parser.add_argument("--duration", type=int, default=10, help="Durasi scene dalam detik.")
+    create_scene_parser.add_argument(
+        "--duration",
+        type=parse_duration,
+        default=10,
+        help="Durasi scene dalam detik; scene MiniMax dapat memakai hingga 4 angka desimal.",
+    )
     create_scene_parser.set_defaults(func=command_create_scene)
 
     return parser

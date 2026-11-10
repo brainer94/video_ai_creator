@@ -5,81 +5,53 @@ description: Menulis prompt MiniMax H3 I2VA dengan satu gambar sebagai first fra
 
 # MiniMax H3 I2VA Prompt
 
-Gunakan mode `I2VA`. Prompt harus dimulai persis dengan satu baris berikut, lalu satu baris kosong:
+Gunakan mode `I2VA`. Prompt disimpan langsung dalam bahasa Inggris pada `positive_prompt`. Prompt wajib memiliki anchor berikut pada awal hasil serialisasi:
 
 ```text
 For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.
 ```
 
-`<Picture 1>` adalah gambar referensi aktual dan merupakan kondisi visual persis pada frame pertama. `[Shot 1]` adalah shot timeline tempat gambar tersebut berlaku.
+`<Picture 1>` adalah gambar referensi aktual dan merupakan kondisi visual persis pada frame pertama.
 
 ## Struktur JSON
 
 ```json
 {
   "positive_prompt": {
-    "id_old": {
-      "mode": "I2VA",
-      "reference": {
-        "picture": "Picture 1",
-        "source": "[Shot 1]",
-        "time": 0.0,
-        "instruction": "fully referenced"
-      },
-      "shots": [],
-      "overall_soundscape": "",
-      "non_diegetic_music": ""
+    "mode": "I2VA",
+    "reference": {
+      "picture": "Picture 1",
+      "source": "[Shot 1]",
+      "time": 0.0,
+      "instruction": "fully referenced"
     },
-    "id_new": {},
-    "en": {}
+    "shots": [
+      {
+        "shot_id": "Shot 1",
+        "start": 0.0,
+        "end": 5.0,
+        "visual": "...",
+        "action": "...",
+        "camera": "...",
+        "dialogue": "...",
+        "diegetic_sound": "..."
+      }
+    ],
+    "overall_soundscape": "...",
+    "non_diegetic_music": "N/A"
   }
 }
 ```
 
-`id_old`, `id_new`, dan `en` harus memiliki struktur nested yang sama. `en` berisi bahasa Inggris; `id_new` dan `id_old` berisi bahasa Indonesia. `id_old` adalah salinan `id_new`.
-
-Field wajib pada setiap object bahasa:
-
-- `mode`: harus `I2VA`
-- `reference`: harus persis memetakan `Picture 1` ke `[Shot 1]` pada `0.0`
-- `shots`: array minimal satu item
-- `overall_soundscape`: string
-- `non_diegetic_music`: string
-
-Setiap item `shots` wajib memiliki:
-
-```json
-{
-  "shot_id": "Shot 1",
-  "start": 0.0,
-  "end": 5.0,
-  "visual": "...",
-  "action": "...",
-  "camera": "...",
-  "dialogue": "...",
-  "diegetic_sound": "..."
-}
-```
+`shots` minimal satu item. Setiap item wajib memiliki delapan field yang sama dengan T2VA. `reference` harus persis memetakan `Picture 1` ke `[Shot 1]` pada `0.0`.
 
 ## Cara menulis prompt
 
-1. Mulai `Shot 1` dari komposisi, subjek, identitas, pakaian, warna, objek penting, pencahayaan, dan layout yang terlihat pada `<Picture 1>`.
+1. Mulai `Shot 1` dari komposisi, subjek, pakaian, warna, objek penting, pencahayaan, dan layout yang terlihat pada `<Picture 1>`.
 2. Tegaskan bahwa `<Picture 1>` adalah exact first frame pada `0.00` detik.
-3. Kembangkan gerakan secara kontinu dari kondisi gambar tersebut menuju akhir video.
-4. Pertahankan identitas subjek, komposisi, pakaian, objek, pencahayaan, hubungan ruang, dan gaya visual.
-5. Jelaskan aksi, kamera, dialog, suara diegetic, ambience, dan musik sesuai timeline.
-6. Gunakan urutan: first-frame anchor → action onset → continuous development → result/reaction.
+3. Kembangkan gerakan secara kontinu menuju akhir video dan pertahankan identitas, komposisi, pakaian, objek, pencahayaan, serta hubungan ruang.
+4. Jelaskan aksi, kamera, dialog, suara diegetik, ambience, dan musik sesuai timeline.
 
-## Struktur prompt Inggris yang dikirim ke model
+Prompt runtime diserialisasi dari object langsung ini. Tombol `Buat Prompt` boleh memakai LLM untuk menghasilkan object Inggris, tetapi runtime tidak menerjemahkan prompt.
 
-```text
-For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.
-
-integrated_multimodal_description: [Shot 1] ...
-
-overall_soundscape: ...
-
-non_diegetic_music: ...
-```
-
-Jangan memakai format T2VA, FL2VA, atau L2VA. Jangan menambahkan `negative_prompt`.
+Jangan memakai format T2VA, FL2VA, atau L2VA dan jangan menambahkan `negative_prompt`.

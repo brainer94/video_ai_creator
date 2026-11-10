@@ -10,37 +10,13 @@ if PROJECT_ROOT not in sys.path:
 
 from qwen_image_edit.qwen_image_edit import MAX_REFERENCE_IMAGES, build_qwen_image_edit_workflow
 from logging_config import setup_logging, write_log
-from prompt_localization import (
-    get_prompt_translator,
-    prepare_project_prompts_for_runtime,
-    read_json_for_runtime,
-)
+from prompt_localization import read_json_for_runtime
 from scripts import comfyui_api
-from scripts.runtime_service_controller import ensure_comfyui, project_uses_hipfire
 from scripts.server_config import get_server_address
 from scripts.timeout_config import COMFYUI_WORKFLOW_TIMEOUT_SECONDS, SHORT_POLL_INTERVAL_SECONDS
 
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-
-
-def _qwen_translation_uses_hipfire(project_dir: Path) -> bool:
-    """Return whether this Qwen run needs the Hipfire -> ComfyUI handoff.
-
-    ``project_uses_hipfire`` is the workflow-level check. Qwen must
-    also inspect the translator itself because prompt generation and prompt
-    translation can be configured independently in older project settings.
-    This check is intentionally local to the Qwen entrypoint so other
-    pipelines keep their existing runtime routing.
-    """
-    if project_uses_hipfire(project_dir):
-        return True
-    try:
-        translator = get_prompt_translator(project_dir=project_dir)
-    except Exception:
-        return False
-    provider = str(getattr(translator, "translate_provider", "")).strip().lower()
-    return provider in {"hipfire", "llama.cpp", "ollama"}
 
 
 def _extract_uploaded_name(upload_info: dict, fallback_name: str) -> str:
@@ -104,21 +80,6 @@ def _load_prompt(scene_dir: Path, prompt_file: str, resolve_runtime: bool = True
         images = []
     payload["images"] = [str(images[index] if index < len(images) else "").strip() for index in range(MAX_REFERENCE_IMAGES)]
     return payload
-
-
-def _ensure_qwen_translation_ready(prompt: dict) -> None:
-    """Do not switch to ComfyUI while a required Qwen translation is pending."""
-    for key in ("positive_prompt", "negative_prompt"):
-        value = prompt.get(key, "")
-        if not isinstance(value, dict):
-            continue
-        id_new = str(value.get("id_new", "") or "").strip()
-        english = str(value.get("en", "") or "").strip()
-        if id_new and not english:
-            raise RuntimeError(
-                f"Translasi Hipfire untuk {key} belum menghasilkan en; "
-                "workflow ComfyUI tidak dijalankan."
-            )
 
 
 def process_scene(scene_dir: Path, server: str, prompt: dict) -> Path:
@@ -194,24 +155,8 @@ def main():
     try:
         if args.number_of_edits <= 0:
             raise RuntimeError("Jumlah Edit Qwen harus lebih besar dari 0.")
-        translation_uses_hipfire = _qwen_translation_uses_hipfire(scene_dir.parent)
-        if translation_uses_hipfire:
-            write_log("[Qwen] Menyelesaikan translasi Hipfire sebelum switch ke ComfyUI")
-            prepare_project_prompts_for_runtime(
-                scene_dir.parent,
-                scene_dirs=[scene_dir],
-                additional_filenames=[str(args.prompt_file or "qwen_image_edit_prompt.json").strip()],
-                log_fn=write_log,
-            )
-            # Read the already-localized file before the service handoff. This
-            # prevents a second read after the switch from calling Hipfire again.
-            prompt = _load_prompt(scene_dir, args.prompt_file, resolve_runtime=False)
-            _ensure_qwen_translation_ready(prompt)
-            write_log("[Qwen] Translasi selesai; switch dan verifikasi ComfyUI dimulai")
-            ensure_comfyui(reason="Qwen Image Edit")
-            write_log("[Qwen] ComfyUI aktif dan siap menerima workflow")
-        else:
-            prompt = _load_prompt(scene_dir, args.prompt_file)
+        prompt = _load_prompt(scene_dir, args.prompt_file)
+        write_log("[Qwen] Mengirim workflow ke ComfyUI")
         prompt["number_of_edits"] = args.number_of_edits
 
         output_path = process_scene(scene_dir, args.server, prompt)

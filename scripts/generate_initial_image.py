@@ -9,7 +9,6 @@ if PROJECT_ROOT not in os.sys.path:
 
 from logging_config import setup_logging, write_log
 from scripts import comfyui_api
-from scripts.runtime_service_controller import ensure_comfyui, project_uses_hipfire
 from scripts.server_config import get_server_address
 from scripts.workflow_builders import load_json
 from scripts.timeout_config import COMFYUI_WORKFLOW_TIMEOUT_SECONDS, SHORT_POLL_INTERVAL_SECONDS
@@ -18,7 +17,6 @@ from gemini.gemini_image import generate_scene_image, is_gemini_prompt
 from prompt_localization import (
     LORA_TRIGGER_WORDS_FIELD,
     prepend_lora_trigger_words,
-    prepare_project_prompts_for_runtime,
     read_json_for_runtime,
     resolve_prompt_payload_for_runtime,
 )
@@ -55,7 +53,6 @@ def process_scene_prompt(scene_dir: str, server: str, prompt_file: str, prompt_i
         prompts, _, _ = resolve_prompt_payload_for_runtime(
             prompt_filename,
             raw_prompts,
-            translate_fn=lambda text: text,
             log_fn=write_log,
         )
     prompt_index = max(1, int(prompt_index or 1))
@@ -76,7 +73,6 @@ def process_scene_prompt(scene_dir: str, server: str, prompt_file: str, prompt_i
             base_prompts, _, _ = resolve_prompt_payload_for_runtime(
                 "z_image_prompt.json",
                 raw_base_prompts,
-                translate_fn=lambda text: text,
                 log_fn=write_log,
             )
         group = groups[prompt_index - 1] if isinstance(groups[prompt_index - 1], dict) else {}
@@ -167,18 +163,6 @@ def main():
     if args.scene:
         requested = set(args.scene)
         scenes = [s for s in scenes if s in requested]
-    if project_uses_hipfire(project_root):
-        additional_filenames = []
-        if str(args.prompt_file or "").strip() and args.prompt_file != "z_image_prompt.json":
-            additional_filenames.append(str(args.prompt_file).strip())
-        prepare_project_prompts_for_runtime(
-            project_root,
-            scene_dirs=[os.path.join(project_root, scene) for scene in scenes],
-            additional_filenames=additional_filenames,
-            log_fn=write_log,
-        )
-        ensure_comfyui(reason="generate initial image")
-
     if not os.path.exists(base):
         write_log(f"Project folder not found: {base}", level="error")
         print("Project folder not found; aborting")

@@ -9,9 +9,8 @@ if PROJECT_ROOT not in os.sys.path:
 from gemini.gemini_image import generate_scene_image, is_gemini_prompt
 from logging_config import setup_logging, write_log
 from scripts import comfyui_api
-from scripts.runtime_service_controller import ensure_comfyui, project_uses_hipfire
 from scripts.workflow_builders import load_json
-from prompt_localization import prepare_project_prompts_for_runtime, read_json_for_runtime, resolve_prompt_payload_for_runtime
+from prompt_localization import read_json_for_runtime, resolve_prompt_payload_for_runtime
 
 
 API_PRODUCTION = os.path.join(PROJECT_ROOT, "api_production")
@@ -39,7 +38,6 @@ def process_scene(scene_dir: str, server: str):
         z_prompt, _, _ = resolve_prompt_payload_for_runtime(
             "z_image_prompt.json",
             raw_prompt,
-            translate_fn=lambda text: text,
             log_fn=write_log,
         )
     if not is_gemini_prompt(z_prompt):
@@ -55,7 +53,6 @@ def process_scene(scene_dir: str, server: str):
 
 
 def main():
-    # Gemini projects do not participate in Hipfire/ComfyUI switching.
     parser = argparse.ArgumentParser(description="Generate initial Gemini images for scenes")
     parser.add_argument("--server", "-s", default="nextgenserver:8188", help="ComfyUI server host:port")
     parser.add_argument("--project", "-p", required=True, help="Nama project di dalam folder api_production")
@@ -73,14 +70,6 @@ def main():
     if args.scene:
         requested = set(args.scene)
         scenes = [s for s in scenes if s in requested]
-    if project_uses_hipfire(project_root):
-        prepare_project_prompts_for_runtime(
-            project_root,
-            scene_dirs=[os.path.join(project_root, scene) for scene in scenes],
-            log_fn=write_log,
-        )
-        ensure_comfyui(reason="generate initial image Gemini")
-
     if not scenes:
         write_log("Tidak ada scene yang cocok untuk diproses.", level="error")
         print("No matching scenes found")

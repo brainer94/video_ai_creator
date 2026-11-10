@@ -57,14 +57,13 @@ def _load_scene_meta_runtime(scene_dir: str) -> dict:
     try:
         return read_json_for_runtime(meta_path, required=True, log_fn=lambda msg: logger.info(msg))
     except Exception as e:
-        logger.warning("Prompt localization fallback for %s: %s", meta_path, e)
+        logger.warning("Prompt schema fallback for %s: %s", meta_path, e)
         try:
             with open(meta_path, "r", encoding="utf-8") as f:
                 raw_meta = json.load(f)
             resolved_meta, _, _ = resolve_prompt_payload_for_runtime(
                 "scene_meta.json",
                 raw_meta,
-                translate_fn=lambda text: text,
             )
             return resolved_meta
         except Exception:

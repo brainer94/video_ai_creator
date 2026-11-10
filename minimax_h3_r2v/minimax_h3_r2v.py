@@ -16,6 +16,8 @@ import subprocess
 from collections.abc import Mapping
 
 from scripts import comfyui_api
+from scripts.special_mode import is_special_mode_enabled
+from scripts.workflow_builders import bypass_model_lora_nodes
 from logging_config import write_log
 from minimax_h3.minimax_h3_prompt import empty_ref2va_prompt, serialize_ref2va_prompt
 
@@ -24,7 +26,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API_TEMPLATE = os.path.join(ROOT, "api_template")
 TEMPLATE = "minimax_h3_r2v_api.json"
 FAST_TEMPLATE = "minimax_fasth3_r2v_api.json"
-SPECIAL_UNET_MODEL = "MINIMAX-H3/10eros_max_h3_8step_turbo_beta6_int8.safetensors"
+SPECIAL_UNET_MODEL = "MINIMAX-H3/10Eros_Max_h3_8stepTURBO_beta6_int8.safetensors"
 FAST_UNET_MODEL = "MINIMAX-H3/fasth3_omniref_8step_pruned_int8_convrot.safetensors"
 FAST_H3_STEPS = 8
 FAST_SHIFT_VIDEO = 12
@@ -99,11 +101,7 @@ DEFAULT_S2V_EN_PROMPT = {
 
 DEFAULT_PROMPT = {
     "prompt_instruction": "",
-    "positive_prompt": {
-        "id_old": copy.deepcopy(DEFAULT_S2V_ID_PROMPT),
-        "id_new": copy.deepcopy(DEFAULT_S2V_ID_PROMPT),
-        "en": copy.deepcopy(DEFAULT_S2V_EN_PROMPT),
-    },
+    "positive_prompt": copy.deepcopy(DEFAULT_S2V_EN_PROMPT),
     "width": 368,
     "height": 640,
     "fps": 24,
@@ -111,6 +109,7 @@ DEFAULT_PROMPT = {
     "lora_strength": 0,
     "lora_name_2": "MINIMAX-H3/AI-Girl-Fictional.safetensors",
     "lora_strength_2": 0,
+    "use_lora": False,
     "replace_speech": False,
     "fast_mode": False,
     "special_mode": False,
@@ -122,30 +121,23 @@ DEFAULT_PROMPT = {
 DEFAULT_R2V_PROMPT = {
     "prompt_instruction": "",
     "positive_prompt": {
-        "id_old": {
-            "subject_definitions": "Adegan memiliki subjek utama yang menjadi fokus video.",
-            "summary": "Video menampilkan subjek utama dalam adegan sinematik yang koheren.",
-            "retention_analysis": "Identitas dan kesinambungan subjek utama dipertahankan sepanjang video.",
-            "detailed_description": "[Shot 1] Video dimulai dengan subjek utama dalam komposisi sinematik, lalu bergerak secara alami dengan pencahayaan yang konsisten.",
-            "overall_soundscape": "Suasana suara mengikuti lingkungan dan aksi yang terlihat dalam adegan.",
-            "non_diegetic_music": "N/A",
-        },
-        "id_new": {
-            "subject_definitions": "Adegan memiliki subjek utama yang menjadi fokus video.",
-            "summary": "Video menampilkan subjek utama dalam adegan sinematik yang koheren.",
-            "retention_analysis": "Identitas dan kesinambungan subjek utama dipertahankan sepanjang video.",
-            "detailed_description": "[Shot 1] Video dimulai dengan subjek utama dalam komposisi sinematik, lalu bergerak secara alami dengan pencahayaan yang konsisten.",
-            "overall_soundscape": "Suasana suara mengikuti lingkungan dan aksi yang terlihat dalam adegan.",
-            "non_diegetic_music": "N/A",
-        },
-        "en": {
-            "subject_definitions": "The scene contains a primary subject that remains the focus of the video.",
-            "summary": "The video presents the primary subject in a coherent cinematic scene.",
-            "retention_analysis": "The identity and continuity of the primary subject are preserved throughout the video.",
-            "detailed_description": "[Shot 1] The video begins with the primary subject in a cinematic composition, then develops naturally with consistent lighting.",
-            "overall_soundscape": "The soundscape follows the environment and visible actions in the scene.",
-            "non_diegetic_music": "N/A",
-        },
+        "mode": "R2VA",
+        "style_opening": "",
+        "subject_definitions": "The scene contains a primary subject that remains the focus of the video.",
+        "summary": "The video presents the primary subject in a coherent cinematic scene.",
+        "retention_analysis": "The identity and continuity of the primary subject are preserved throughout the video.",
+        "shots": [{
+            "shot_id": "Shot 1",
+            "start": 0.0,
+            "end": 5.0,
+            "visual": "The video begins with the primary subject in a cinematic composition, then develops naturally with consistent lighting.",
+            "action": "The primary subject moves naturally within the scene.",
+            "camera": "The camera uses a stable medium shot with smooth movement.",
+            "dialogue": "No dialogue.",
+            "diegetic_sound": "Natural environmental sound follows the visible action.",
+        }],
+        "overall_soundscape": "The soundscape follows the environment and visible actions in the scene.",
+        "non_diegetic_music": "N/A",
     },
     "width": 368,
     "height": 640,
@@ -155,6 +147,7 @@ DEFAULT_R2V_PROMPT = {
     "lora_strength": 0,
     "lora_name_2": "MINIMAX-H3/AI-Girl-Fictional.safetensors",
     "lora_strength_2": 0,
+    "use_lora": False,
     "fast_mode": False,
     "special_mode": False,
     "h3_cache": {"steps": DEFAULT_H3_STEPS},
@@ -361,12 +354,7 @@ def _prompt_text(prompt) -> str:
     if isinstance(positive, str):
         return positive
     if isinstance(positive, Mapping):
-        for key in ("en", "id_new", "id_old"):
-            value = positive.get(key)
-            if isinstance(value, str):
-                return value
-            if isinstance(value, Mapping):
-                return serialize_ref2va_prompt(value)
+        return serialize_ref2va_prompt(positive)
     return ""
 
 
@@ -503,7 +491,8 @@ def build_workflow(
 
     source = prompt if isinstance(prompt, Mapping) else {}
     use_fast = bool(source.get("fast_mode", False))
-    if use_fast and bool(source.get("special_mode", False)):
+    special_mode = bool(source.get("special_mode", False)) and is_special_mode_enabled()
+    if use_fast and special_mode:
         raise ValueError("Mode Cepat dan Mode Khusus MiniMax H3 tidak boleh aktif bersamaan.")
 
     workflow = copy.deepcopy(
@@ -511,7 +500,7 @@ def build_workflow(
     )
     _set_prompt(workflow, prompt)
 
-    if bool(source.get("special_mode", False)):
+    if special_mode:
         _set_input(workflow, "127", "unet_name", SPECIAL_UNET_MODEL)
     if width is None:
         width = source.get("width", 368) if isinstance(source, Mapping) else 368
@@ -560,21 +549,28 @@ def build_workflow(
             remove_references(workflow, **{f"remove_audio_{index + 1}_reference": True})
 
     workflow = remove_references(workflow, **remove_options)
-    _set_lora_node(
-        workflow,
-        "156",
-        source.get("lora_name", DEFAULT_PROMPT["lora_name"]),
-        source.get("lora_strength", DEFAULT_PROMPT["lora_strength"]),
-    )
-    _set_lora_node(
-        workflow,
-        "157",
-        source.get("lora_name_2", DEFAULT_PROMPT["lora_name_2"]),
-        source.get("lora_strength_2", DEFAULT_PROMPT["lora_strength_2"]),
-    )
     if use_fast:
         _apply_fast_h3_graph(workflow)
+    if bool(source.get("use_lora", False)):
+        _set_lora_node(
+            workflow,
+            "156",
+            source.get("lora_name", DEFAULT_PROMPT["lora_name"]),
+            source.get("lora_strength", DEFAULT_PROMPT["lora_strength"]),
+        )
+        _set_lora_node(
+            workflow,
+            "157",
+            source.get("lora_name_2", DEFAULT_PROMPT["lora_name_2"]),
+            source.get("lora_strength_2", DEFAULT_PROMPT["lora_strength_2"]),
+        )
     else:
+        bypass_model_lora_nodes(
+            workflow,
+            ("156", "157"),
+            "165" if use_fast else "127",
+        )
+    if not use_fast:
         _apply_steps(workflow, source)
     return _inject_random_noise_seed(workflow)
 

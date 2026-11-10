@@ -943,8 +943,6 @@ def sync_project_size_to_scene_files(project_dir: Path, project_settings: dict |
                 if not filename.startswith("minimax_h3_")
                 and filename not in {MINIMAX_H3_S2V_PROMPT_FILENAME, MINIMAX_H3_R2V_PROMPT_FILENAME}
             ]
-        if scene_type in {MINIMAX_H3_I2V_SCENE_TYPE, MINIMAX_H3_I2V_PANJANG_SCENE_TYPE, "i2v"}:
-            prompt_files.insert(0, "z_image_prompt.json")
         for filename in prompt_files:
             path = scene_dir / filename
             if not path.exists():
@@ -1779,16 +1777,22 @@ class SceneTemplateDialog(QDialog):
 class SceneSelectionDialog(QDialog):
     """Choose the scenes that should be sent to one batch run."""
 
-    def __init__(self, scene_entries, parent=None):
+    def __init__(
+        self,
+        scene_entries,
+        parent=None,
+        title="Jalankan Beberapa Adegan",
+        instruction_text="Pilih adegan yang ingin dijalankan. Urutan mengikuti daftar adegan di project.",
+    ):
         super().__init__(parent)
-        self.setWindowTitle("Jalankan Beberapa Adegan")
+        self.setWindowTitle(title)
         self.setModal(True)
         self.resize(620, 520)
         self._selected_scene_dirs = []
 
         layout = QVBoxLayout(self)
         instruction = QLabel(
-            "Pilih adegan yang ingin dijalankan. Urutan mengikuti daftar adegan di project.",
+            instruction_text,
             self,
         )
         instruction.setWordWrap(True)
@@ -6046,13 +6050,10 @@ class SceneEditorWindow(QMainWindow):
         combo.setEnabled(True)
         combo.blockSignals(False)
 
-    def _apply_z_size_constraint_by_scene_type(self):
-        scene_type = str(self.scene_type_combo.currentText() or "").strip()
-        if scene_type in {"image_pan", "image_zoom"}:
-            self._set_unlocked_z_size_combo()
-            return
-        width, height = self._project_video_size()
-        self._set_locked_size_combo(self.z_size_input, width, height)
+    def _apply_z_size_ui_state(self):
+        # The initial image has its own scene-local size. It is intentionally
+        # independent from the project's final video size for every scene type.
+        self._set_unlocked_z_size_combo()
 
     def apply_project_size_constraints_to_ui(self):
         scene_type = str(self.scene_type_combo.currentText() or "").strip()
@@ -6113,7 +6114,7 @@ class SceneEditorWindow(QMainWindow):
                 MINIMAX_H3_S2V_SIZE_OPTIONS,
                 local_s2v_size,
             )
-        self._apply_z_size_constraint_by_scene_type()
+        self._apply_z_size_ui_state()
 
     def _sync_project_size_to_scene_file(self, scene_dir: Path, filename: str, width: int, height: int):
         path = scene_dir / filename
@@ -6137,8 +6138,6 @@ class SceneEditorWindow(QMainWindow):
         for scene_dir in list_scene_dirs_in_project(pdir):
             meta = load_json(scene_dir / "scene_meta.json", DEFAULT_SCENE_META)
             scene_type = str(meta.get("scene_type", "i2v")).strip()
-            if scene_type in {MINIMAX_H3_I2V_SCENE_TYPE, MINIMAX_H3_I2V_PANJANG_SCENE_TYPE, "i2v"}:
-                self._sync_project_size_to_scene_file(scene_dir, "z_image_prompt.json", width, height)
             # MiniMax sizes are explicit per-scene overrides. Changing the
             # project master size must not overwrite them.
             if scene_type not in {
@@ -6438,9 +6437,9 @@ class SceneEditorWindow(QMainWindow):
             scene_scoped=True,
         )
         add_button(
-            "Buat voice untuk semua adegan.",
+            "Pilih lalu buat voice untuk beberapa adegan.",
             QStyle.SP_MediaSeekForward,
-            self.generate_voice_all_scenes,
+            self.generate_voice_multiple_scenes,
             scene_scoped=True,
         )
         return frame
@@ -7271,13 +7270,7 @@ class SceneEditorWindow(QMainWindow):
                 self.z_gemini_model_input.addItem(selected_gemini_model, selected_gemini_model)
                 index = self.z_gemini_model_input.findData(selected_gemini_model)
             self.z_gemini_model_input.setCurrentIndex(max(index, 0))
-            index = -1
-            for i in range(self.z_size_input.count()):
-                size_value = self.z_size_input.itemData(i)
-                if isinstance(size_value, tuple) and size_value == (z_width, z_height):
-                    index = i
-                    break
-            self.z_size_input.setCurrentIndex(max(index, 0))
+            self._set_unlocked_z_size_combo((z_width, z_height))
             self.z_use_random_seed_input.setChecked(bool(z_prompt.get("use_random_seed", True)))
             self.z_seed_input.setText(str(z_prompt.get("seed", 1)))
             self.z_use_lora_input.setChecked(bool(z_prompt.get("use_lora", False)))
@@ -10413,18 +10406,60 @@ class SceneEditorWindow(QMainWindow):
             watch_dirs=[self.current_scene_dir],
         )
 
-    def generate_voice_all_scenes(self):
+    def generate_voice_multiple_scenes(self):
         if not self.ensure_project_selected():
             return
-        if not self.confirm_run_action("Buat Semua Voice", "Buat voice untuk semua adegan?"):
-            return
         if self.current_scene_dir:
-            self.save_current_scene(silent=True)
+            if not self.save_current_scene(silent=True):
+                return
+
+        scene_dirs = self.list_scene_dirs_current()
+        if not scene_dirs:
+            QMessageBox.information(
+                self,
+                "Belum Ada Adegan",
+                "Project ini belum memiliki adegan untuk dibuatkan voice.",
+            )
+            return
+
+        scene_entries = []
+        for scene_dir in scene_dirs:
+            meta = load_json(scene_dir / "scene_meta.json", {})
+            scene_title = meta.get("scene_title", "") if isinstance(meta, dict) else ""
+            scene_entries.append((scene_dir, scene_title, self.get_scene_issues(scene_dir)))
+
+        dialog = SceneSelectionDialog(
+            scene_entries,
+            self,
+            title="Buat Voice untuk Beberapa Adegan",
+            instruction_text="Pilih adegan yang ingin dibuatkan voice. Urutan mengikuti daftar adegan di project.",
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        selected_scene_dirs = dialog.selected_scene_dirs()
+        if not selected_scene_dirs:
+            return
+
+        selected_names = ", ".join(scene_dir.name for scene_dir in selected_scene_dirs)
+        if not self.confirm_run_action(
+            "Buat Voice untuk Beberapa Adegan",
+            f"Buat voice untuk {len(selected_scene_dirs)} adegan berikut?\n\n{selected_names}",
+        ):
+            return
+
+        args = [
+            "--server",
+            self.comfyui_server_address(),
+            "--project",
+            self.current_project_name,
+        ]
+        for scene_dir in selected_scene_dirs:
+            args.extend(["--scene", scene_dir.name])
         self.start_process(
             VOICE_SCRIPT,
-            ["--server", self.comfyui_server_address(), "--project", self.current_project_name],
-            "Membuat voice untuk semua adegan",
-            watch_dirs=self.list_scene_dirs_current(),
+            args,
+            f"Membuat voice untuk {len(selected_scene_dirs)} adegan",
+            watch_dirs=selected_scene_dirs,
         )
 
     def compose_all_scenes(self):

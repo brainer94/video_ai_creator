@@ -29,6 +29,8 @@ Model `Gemini` menggunakan pilihan model gambar Gemini pada kolom `Model Gemini`
 
 Menentukan ukuran gambar keluaran. Pilih ukuran yang sesuai dengan orientasi video dan kebutuhan adegan.
 
+Ukuran gambar ditentukan melalui pilihan `Ukuran` pada tab ini.
+
 ### Random Seed dan Seed Statik
 
 Jika `Random Seed` aktif, setiap pembuatan gambar dapat menghasilkan variasi baru.

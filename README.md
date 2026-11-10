@@ -4,6 +4,82 @@ Video AI Creator adalah aplikasi desktop untuk membuat video berbasis adegan. Pe
 
 Aplikasi ini juga menyediakan bantuan Gemini untuk menyusun prompt, pembuatan suara, pembuatan gambar, penggabungan video, serta pengelolaan model dan LoRA melalui ComfyUI.
 
+## Keuntungan menggunakan Video AI Creator
+
+### 1. Studio produksi video dan aset AI
+
+Video AI Creator dirancang sebagai studio desktop untuk menyiapkan dan memproduksi video berbasis AI melalui antarmuka yang terstruktur. Aplikasi ini dapat digunakan di Windows maupun Linux, sehingga project dapat dikelola langsung dari komputer kerja pengguna.
+
+Manfaat utamanya meliputi:
+
+- menyediakan alur kerja studio untuk membuat video AI berbasis scene;
+- membantu membuat dan mengelola aset pendukung seperti gambar, voice, dan audio dalam satu project;
+- menyediakan workflow ComfyUI yang sudah disiapkan beserta konfigurasinya, sehingga pengguna tidak perlu merancang workflow dari awal;
+- menyediakan pilihan model yang telah disesuaikan untuk kebutuhan produksi video, gambar, dan audio;
+- membantu pengguna mengatur prompt, referensi, aset, dan konfigurasi scene secara konsisten.
+
+Dengan demikian, pengguna dapat lebih fokus pada perancangan adegan dan hasil kreatif tanpa harus memahami seluruh detail teknis workflow ComfyUI dan konfigurasi model.
+
+### 2. Untuk pengguna yang tidak memiliki GPU pribadi
+
+Video AI Creator dapat digunakan bersama GPU cloud dari Vast.ai. Pengguna cukup menyewa instance GPU melalui console Vast.ai, menjalankan ComfyUI di instance tersebut, lalu menghubungkannya ke aplikasi melalui URL ComfyUI.
+
+Pendekatan ini memberikan beberapa keuntungan:
+
+- pengguna tidak perlu membeli atau merawat GPU pribadi;
+- instance GPU dapat dipilih sesuai kebutuhan dan anggaran;
+- Video AI Creator tetap digunakan dari komputer atau laptop lokal melalui desktop UI;
+- project, scene, aset input, dan hasil yang dikelola aplikasi tetap tersimpan secara lokal;
+- ComfyUI dan model berjalan di instance Vast.ai, sedangkan aplikasi lokal mengatur prosesnya melalui koneksi jaringan.
+
+### 3. Strategi penggunaan bersama Vast.ai
+
+Strategi yang disarankan adalah memisahkan proses menjadi pembelajaran, perancangan, pre-production, dan production. Dengan cara ini, GPU mahal hanya digunakan ketika scene dan prompt sudah siap.
+
+Harga sewa GPU, biaya penyimpanan, biaya transfer data, ketersediaan instance, serta kecepatan proses dapat berubah sewaktu-waktu. Angka di bawah ini adalah contoh estimasi untuk membantu perencanaan, bukan harga tetap atau jaminan hasil.
+
+#### 3.1 Proses pembelajaran
+
+Gunakan GPU yang lebih terjangkau untuk mempelajari aplikasi dan menguji alur kerja.
+
+1. Gunakan GPU ekonomis, misalnya RTX 5060 Ti dengan VRAM 16 GB. Pada kondisi tertentu, harga sewanya dapat berada di sekitar **$0,20 per jam**.
+2. Pelajari penggunaan UI, pengaturan scene, serta pembuatan aset gambar dan voice jika menggunakan Gemini.
+3. Pelajari cara menyusun prompt untuk setiap jenis scene.
+4. Mulai dengan resolusi rendah, misalnya `640x368` atau `368x640`, baik untuk gambar maupun video.
+5. Gunakan durasi pendek terlebih dahulu, misalnya 2 sampai 5 detik, agar pengujian lebih cepat dan hemat biaya.
+
+#### 3.2 Perancangan video
+
+Pada tahap perancangan, GPU Vast.ai belum diperlukan.
+
+1. Jangan membuat atau menyewa instance GPU sebelum rancangan scene siap diuji.
+2. Buat project, scene, prompt, referensi, dan konfigurasi melalui Video AI Creator tanpa koneksi ComfyUI ke Vast.ai.
+3. Siapkan gambar awal menggunakan aplikasi lain atau Gemini.
+4. Periksa kembali urutan scene, durasi, referensi, teks suara, dan prompt sebelum masuk ke tahap produksi.
+
+Tahap ini dapat dilakukan tanpa billing GPU, sehingga pengguna dapat menyusun sebagian besar rancangan video dengan lebih leluasa.
+
+#### 3.3 Pre-production
+
+Gunakan GPU yang lebih terjangkau untuk menguji dan menyempurnakan rancangan.
+
+1. Gunakan GPU ekonomis, misalnya RTX 5060 Ti 16 GB. Sebagai gambaran, harga sewanya dapat berada di sekitar **$0,20 per jam**, bergantung pada ketersediaan host.
+2. Buat video dengan resolusi rendah, misalnya `640x368` atau `368x640`.
+3. Uji scene, prompt, durasi, referensi, LoRA, dan konfigurasi lainnya.
+4. Perbaiki pengaturan hingga alur video dapat dihasilkan dengan benar dan hasil visualnya sesuai tujuan.
+5. Simpan hasil pengujian yang sudah baik sebagai acuan sebelum berpindah ke resolusi produksi.
+
+#### 3.4 Production
+
+Gunakan GPU dengan kemampuan lebih tinggi setelah rancangan dan hasil pre-production sudah stabil.
+
+1. Sewa GPU profesional di Vast.ai setelah scene dan prompt berhasil diuji pada tahap pre-production.
+2. Sebagai contoh, RTX 5090 dengan VRAM 32 GB dapat menjadi pilihan untuk produksi, dengan kisaran harga sekitar **$0,70 sampai $1,00 per jam**, bergantung pada kondisi instance.
+3. Gunakan resolusi produksi, yaitu 720p atau lebih tinggi sesuai kebutuhan project.
+4. Dalam kondisi workflow, model, durasi, dan host tertentu, penggunaan RTX 5090 selama satu jam dapat menghasilkan total video sekitar 120 detik.
+5. Sebagai estimasi kasar, biaya gabungan pre-production dan production untuk video berdurasi total 120 detik pada resolusi 720p dapat berada di kisaran **$1 sampai $2**.
+6. Biaya tersebut berpotensi lebih rendah dibandingkan pembuatan video dengan API cloud secara langsung, tetapi tetap perlu memperhitungkan biaya GPU, storage, transfer data, waktu antrean, dan pengaturan instance.
+
 
 ## Instalasi Windows
 

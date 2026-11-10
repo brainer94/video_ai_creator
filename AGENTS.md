@@ -581,11 +581,9 @@ Perilaku UI:
   - untuk model `gemini-3.8-flash-tts`, pilihan suara diambil dari Gemini Voices API dan ditampilkan berdasarkan nama voice saja
 - language TTS runtime dipaksa ke `id-ID`
 - label input prompt di UI berbahasa Indonesia, sedangkan isi prompt yang disimpan berbahasa Inggris; editor MiniMax memakai form interaktif
-- ukuran video project menjadi sumber ukuran tunggal untuk tab:
-  - `Image Pan`
-  - `Image Zoom`
-  - `Gambar Awal` hanya untuk scene type `minimax-h3_i2v`, `minimax-h3_i2v-panjang`, dan `i2v`
-- dropdown ukuran pada tab-tab tersebut dikunci (disabled) dan hanya menampilkan ukuran project aktif
+- ukuran video project menjadi sumber ukuran untuk tab `Image Pan` dan `Image Zoom`
+- dropdown ukuran pada tab `Image Pan` dan `Image Zoom` dikunci (disabled) dan hanya menampilkan ukuran project aktif
+- ukuran pada tab `Gambar Awal` ditentukan secara scene-local melalui dropdown pada tab tersebut
 - scene type `minimax-h3_i2v` menampilkan tab berurutan:
   - `Meta`
   - `Gambar Awal`
@@ -616,7 +614,7 @@ Perilaku UI:
   - `MINIMAX-H3_S2V`
   - `Aset`
 - urutan tab selalu di-reset ke urutan canonical saat berpindah scene sehingga tidak dipengaruhi scene yang sebelumnya dibuka
-- khusus tab `Gambar Awal` pada scene type `image_pan` dan `image_zoom`, dropdown ukuran tetap aktif (tidak mengikuti ukuran project)
+- tab `Gambar Awal` memiliki dropdown ukuran aktif untuk menentukan ukuran gambar awal setiap scene
 - tab MiniMax T2V dan I2V masing-masing menyediakan:
   - `Ukuran` yang mengikuti ukuran video project
   - FPS MiniMax H3 ditetapkan `24`

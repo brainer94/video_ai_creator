@@ -117,6 +117,8 @@ userdata/
 *.png
 *.jpg
 *.jpeg
+!docs/images/
+!docs/images/**
 *.safetensors
 *.ckpt
 models/

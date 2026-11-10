@@ -8186,9 +8186,18 @@ class SceneEditorWindow(QMainWindow):
         elif prompt_kind == "minimax_h3_r2v":
             widget = self.minimax_h3_r2v_positive_input
         display_text = _serialize_prompt_json_for_ui(prompt_value)
-        widget.setPlainText(display_text)
-        widget.document().setModified(True)
-        widget.viewport().update()
+        # Setting a prompt emits ``textChanged``.  That signal normally keeps
+        # the interactive editor and its JSON backing field synchronized, but
+        # during a generated-prompt load it can run first and copy the editor's
+        # previous value back over the freshly generated JSON.  Block only
+        # this programmatic assignment; user edits remain fully live.
+        signals_blocked = widget.blockSignals(True)
+        try:
+            widget.setPlainText(display_text)
+            widget.document().setModified(True)
+            widget.viewport().update()
+        finally:
+            widget.blockSignals(signals_blocked)
         self._refresh_minimax_prompt_editor_panels()
         return widget.toPlainText() == display_text
 
@@ -9375,7 +9384,11 @@ class SceneEditorWindow(QMainWindow):
             ]
         else:
             template_path = "api_template/minimax_h3_i2v_api.json"
-            output_path = "minimax_h3_i2v_prompt.json"
+            output_path = (
+                MINIMAX_H3_I2V_PANJANG_PROMPT_FILENAME
+                if scene_type == MINIMAX_H3_I2V_PANJANG_SCENE_TYPE
+                else "minimax_h3_i2v_prompt.json"
+            )
             scene_reference = (
                 "api_production/AGENT-SKILLS/SCENE-MINIMAX-H3-I2V-PANJANG.md"
                 if scene_type == MINIMAX_H3_I2V_PANJANG_SCENE_TYPE
@@ -10038,6 +10051,16 @@ class SceneEditorWindow(QMainWindow):
                 entry, errors = parse_structured_response(structured, expected_mode=expected_mode)
                 if not errors and expected_mode == "I2VA":
                     entry = enforce_i2va_first_shot_visual(entry)
+                    if prompt_kind.startswith("minimax_h3_i2v_panjang_"):
+                        try:
+                            frame_end_time = float(self.parse_duration_value())
+                        except (TypeError, ValueError):
+                            frame_end_time = 5.0
+                        entry = ensure_i2va_frame_instructions(
+                            entry,
+                            frame_end_time,
+                            include_last_frame=True,
+                        )
             if errors:
                 self.append_log("[gagal] Response nested MiniMax tidak valid: " + "; ".join(errors[:3]))
                 self.statusBar().showMessage("Format JSON MiniMax tidak sesuai.", 4000)

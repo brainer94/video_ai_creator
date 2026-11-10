@@ -137,6 +137,8 @@ def validate_ref2va_prompt(value) -> list[str]:
                 for key in REQUIRED_SHOT_KEYS:
                     if key not in {"start", "end"} and not isinstance(shot.get(key), str):
                         errors.append(f"{prefix}.{key} harus berupa string.")
+                    elif key not in {"start", "end"} and not str(shot.get(key, "")).strip():
+                        errors.append(f"{prefix}.{key} tidak boleh kosong.")
     elif not isinstance(value.get("detailed_description"), str) or not value.get("detailed_description", "").strip():
         errors.append("Ref2VA.detailed_description atau Ref2VA.shots wajib diisi.")
     return errors
@@ -674,6 +676,8 @@ def validate_structured_prompt(value, expected_mode: str | None = None) -> list[
             for key in REQUIRED_SHOT_KEYS:
                 if key not in {"start", "end"} and not isinstance(shot.get(key), str):
                     errors.append(f"{prefix}.{key} harus berupa string.")
+                elif key not in {"start", "end"} and not str(shot.get(key, "")).strip():
+                    errors.append(f"{prefix}.{key} tidak boleh kosong.")
 
     for key in REQUIRED_AUDIO_KEYS:
         if not isinstance(value.get(key), str) or not str(value.get(key)).strip():

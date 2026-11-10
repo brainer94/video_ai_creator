@@ -1081,4 +1081,9 @@ def read_json_for_runtime(
         _write_json_file(path, stored)
         if log_fn:
             log_fn(f"Prompt schema diperbarui: {path}")
-    return resolved
+    # Some runtime builders need the canonical structured object (for
+    # example MiniMax I2VA, which validates and adjusts shots before
+    # serialization).  The flag was already threaded through the API but was
+    # previously ignored here, so those builders received the display string
+    # instead of the JSON object and then saw an empty ``shots`` array.
+    return stored if preserve_structured else resolved

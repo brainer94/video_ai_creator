@@ -604,6 +604,7 @@ Perilaku UI:
   - `Buat Prompt` memakai LLM untuk menghasilkan object Inggris sesuai aturan JSON MiniMax H3 I2VA
 - scene type `minimax-h3_r2v-panjang` menampilkan tab berurutan:
   - `Meta`
+  - `Gambar Awal`
   - `Qwen Image Edit`
   - `MINIMAX-H3_R2V-PANJANG`
   - `Aset`

@@ -12,13 +12,14 @@ Tersedia empat proses: `Proses 1`, `Proses 2`, `Proses 3`, dan `Proses 4`.
 
 1. Pada tab `Meta`, pilih tipe adegan `minimax-h3_r2v-panjang`.
 2. Atur durasi adegan pada tab `Meta`. Durasi ini berlaku untuk setiap proses yang aktif.
-3. Buka tab `MINIMAX-H3_R2V-PANJANG`.
-4. Pilih referensi gambar, audio, dan video yang akan digunakan bersama.
-5. Tentukan jumlah proses melalui `Jumlah lanjutan`.
-6. Susun prompt untuk setiap proses yang digunakan.
-7. Atur pengaturan umum seperti ukuran, LoRA, mode, dan jumlah step.
-8. Simpan adegan.
-9. Jalankan rangkaian proses.
+3. Jika membutuhkan gambar referensi baru, buka tab `Gambar Awal` dan buat gambar tersebut.
+4. Buka tab `MINIMAX-H3_R2V-PANJANG`.
+5. Pilih referensi gambar, audio, dan video yang akan digunakan bersama.
+6. Tentukan jumlah proses melalui `Jumlah lanjutan`.
+7. Susun prompt untuk setiap proses yang digunakan.
+8. Atur pengaturan umum seperti ukuran, LoRA, mode, dan jumlah step.
+9. Simpan adegan.
+10. Jalankan rangkaian proses.
 
 ## Referensi global
 

@@ -200,6 +200,11 @@ HELP_DOCUMENTS = (
     ("log_proses", "Log Proses"),
     ("log_comfyui", "Log ComfyUI"),
     ("upscale_video", "Upscale Video"),
+    ("complete-guide-minimax-shared", "Panduan Bersama Prompt MiniMax H3"),
+    ("complete-guide-minimax-t2v", "Panduan Lengkap MiniMax H3 T2V"),
+    ("complete-guide-minimax-i2v", "Panduan Lengkap MiniMax H3 I2V"),
+    ("complete-guide-minimax-fl2v", "Panduan Lengkap MiniMax H3 FL2V"),
+    ("complete-guide-minimax-r2v", "Panduan Lengkap MiniMax H3 R2V"),
 )
 HELP_DOCUMENT_LABELS = dict(HELP_DOCUMENTS)
 HELP_TAB_DOCUMENT_KEYS = {
@@ -558,6 +563,7 @@ def scene_type_supports_initial_image(scene_type: str) -> bool:
         MINIMAX_H3_I2V_PANJANG_SCENE_TYPE,
         MINIMAX_H3_S2V_SCENE_TYPE,
         MINIMAX_H3_R2V_SCENE_TYPE,
+        MINIMAX_H3_R2V_PANJANG_SCENE_TYPE,
         "i2v",
         "image_pan",
         "image_zoom",
@@ -1892,13 +1898,18 @@ class ProcessDialog(QDialog):
 
 
 class HelpDialog(QDialog):
-    """Display a user-help Markdown file without duplicating its content in code."""
+    """Display one or more user-help Markdown files without duplicating their content in code."""
 
-    def __init__(self, document_key: str, parent=None):
+    def __init__(self, document_key: str | list[str] | tuple[str, ...], parent=None, window_title=None):
         super().__init__(parent)
-        key = str(document_key or "").strip()
-        label = HELP_DOCUMENT_LABELS.get(key, key or "Bantuan")
-        self.setWindowTitle(f"Bantuan — {label}")
+        if isinstance(document_key, (list, tuple)):
+            keys = [str(key or "").strip() for key in document_key]
+        else:
+            keys = [str(document_key or "").strip()]
+        self.document_keys = [key for key in keys if key]
+        labels = [HELP_DOCUMENT_LABELS.get(key, key) for key in self.document_keys]
+        label = " + ".join(labels) or "Bantuan"
+        self.setWindowTitle(window_title or f"Bantuan - {label}")
         self.resize(900, 700)
 
         layout = QVBoxLayout(self)
@@ -1914,23 +1925,27 @@ class HelpDialog(QDialog):
         close_button.clicked.connect(self.close)
         button_row.addWidget(close_button)
         layout.addLayout(button_row)
-        self._load_document(key)
+        self._load_documents(self.document_keys)
 
-    def _load_document(self, key: str):
-        path = get_user_help_path(key)
-        try:
-            markdown = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            self.browser.setMarkdown(
-                f"# Panduan tidak tersedia\n\nPanduan untuk **{key or 'tampilan ini'}** belum dapat dibaca.\n\n`{exc}`"
-            )
-            return
-        self.browser.setMarkdown(markdown)
+    def _load_documents(self, keys):
+        sections = []
+        for key in keys:
+            path = get_user_help_path(key)
+            try:
+                markdown = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                markdown = (
+                    f"# Panduan tidak tersedia\n\n"
+                    f"Panduan untuk **{key or 'tampilan ini'}** belum dapat dibaca.\n\n"
+                    f"`{exc}`"
+                )
+            sections.append(markdown)
+        self.browser.setMarkdown("\n\n---\n\n".join(sections) if sections else "# Panduan tidak tersedia")
 
 
-def open_help_dialog(document_key: str, parent=None):
+def open_help_dialog(document_key: str | list[str] | tuple[str, ...], parent=None, window_title=None):
     """Open one help document as a modeless window owned by the current screen."""
-    dialog = HelpDialog(document_key, parent)
+    dialog = HelpDialog(document_key, parent, window_title=window_title)
     dialog.setAttribute(Qt.WA_DeleteOnClose, True)
     if parent is not None:
         active_dialogs = getattr(parent, "_active_help_dialogs", [])
@@ -4889,15 +4904,22 @@ class SceneEditorWindow(QMainWindow):
         t2v_mode_layout.addWidget(self.minimax_h3_t2v_fast_mode_input)
         t2v_mode_layout.addWidget(self.minimax_h3_t2v_special_mode_input)
         minimax_t2v_layout.addLayout(t2v_mode_layout, 4, 2)
-        minimax_t2v_layout.addWidget(self.minimax_h3_t2v_editor_panel, 5, 0, 1, 4)
-        minimax_t2v_layout.addWidget(QLabel("Perintah kepada LLM"), 6, 0)
-        minimax_t2v_layout.addWidget(self.minimax_h3_t2v_prompt_instruction_input, 6, 1, 1, 3)
+        minimax_t2v_layout.addWidget(
+            self._prompt_guide_button(
+                ["complete-guide-minimax-t2v", "complete-guide-minimax-shared"],
+                "Panduan Pembuatan Prompt - MiniMax H3 T2V",
+            ),
+            5, 0, 1, 4, Qt.AlignLeft,
+        )
+        minimax_t2v_layout.addWidget(self.minimax_h3_t2v_editor_panel, 6, 0, 1, 4)
+        minimax_t2v_layout.addWidget(QLabel("Perintah kepada LLM"), 7, 0)
+        minimax_t2v_layout.addWidget(self.minimax_h3_t2v_prompt_instruction_input, 7, 1, 1, 3)
         t2v_prompt_actions = QHBoxLayout()
         t2v_prompt_actions.addWidget(self.minimax_h3_t2v_generate_prompt_button)
         t2v_prompt_actions.addStretch(1)
-        minimax_t2v_layout.addLayout(t2v_prompt_actions, 7, 1, 1, 3)
+        minimax_t2v_layout.addLayout(t2v_prompt_actions, 8, 1, 1, 3)
         self.minimax_h3_t2v_h3_cache_group = self._steps_group(self.minimax_h3_t2v_h3_cache_inputs)
-        minimax_t2v_layout.addWidget(self.minimax_h3_t2v_h3_cache_group, 8, 0, 1, 4)
+        minimax_t2v_layout.addWidget(self.minimax_h3_t2v_h3_cache_group, 9, 0, 1, 4)
         tabs.addTab(self.minimax_h3_t2v_tab, "MINIMAX-H3_T2V")
 
         self.minimax_h3_i2v_tab = QWidget()
@@ -4966,38 +4988,54 @@ class SceneEditorWindow(QMainWindow):
                 build_reference_box(stage_index, page_layout, 5)
                 prompt_row = 6
                 self.minimax_h3_i2v_panjang_continuations_label = QLabel("Jumlah lanjutan")
-                page_layout.addWidget(self.minimax_h3_i2v_panjang_continuations_label, 9, 0)
-                page_layout.addWidget(self.minimax_h3_i2v_panjang_continuations_input, 9, 1)
                 self.minimax_h3_i2v_panjang_run_start_label = QLabel("Run mulai dari tab")
-                page_layout.addWidget(self.minimax_h3_i2v_panjang_run_start_label, 10, 0)
-                page_layout.addWidget(self.minimax_h3_i2v_panjang_run_start_input, 10, 1)
-                page_layout.addWidget(self.minimax_h3_i2v_editor_panel, prompt_row, 0, 1, 4)
-                page_layout.addWidget(QLabel("Perintah kepada LLM"), prompt_row + 1, 0)
-                page_layout.addWidget(self.minimax_h3_i2v_prompt_instruction_input, prompt_row + 1, 1, 1, 3)
+                page_layout.addWidget(
+                    self._prompt_guide_button(
+                        [],
+                        "",
+                        handler=self._open_minimax_i2v_prompt_guide,
+                    ),
+                    prompt_row, 0, 1, 4, Qt.AlignLeft,
+                )
+                page_layout.addWidget(self.minimax_h3_i2v_editor_panel, prompt_row + 1, 0, 1, 4)
+                page_layout.addWidget(QLabel("Perintah kepada LLM"), prompt_row + 2, 0)
+                page_layout.addWidget(self.minimax_h3_i2v_prompt_instruction_input, prompt_row + 2, 1, 1, 3)
                 i2v_prompt_actions = QHBoxLayout()
                 i2v_prompt_actions.addWidget(self.minimax_h3_i2v_generate_prompt_button)
                 i2v_prompt_actions.addStretch(1)
-                page_layout.addLayout(i2v_prompt_actions, prompt_row + 2, 1, 1, 3)
+                page_layout.addLayout(i2v_prompt_actions, prompt_row + 3, 1, 1, 3)
                 self.minimax_h3_i2v_h3_cache_group = self._steps_group(self.minimax_h3_i2v_h3_cache_inputs)
-                page_layout.addWidget(self.minimax_h3_i2v_h3_cache_group, 12, 0, 1, 4)
+                page_layout.addWidget(self.minimax_h3_i2v_panjang_continuations_label, 10, 0)
+                page_layout.addWidget(self.minimax_h3_i2v_panjang_continuations_input, 10, 1)
+                page_layout.addWidget(self.minimax_h3_i2v_panjang_run_start_label, 11, 0)
+                page_layout.addWidget(self.minimax_h3_i2v_panjang_run_start_input, 11, 1)
+                page_layout.addWidget(self.minimax_h3_i2v_h3_cache_group, 13, 0, 1, 4)
             else:
                 build_reference_box(stage_index, page_layout, 0)
                 prompt_input = self.minimax_h3_i2v_panjang_prompt_inputs[stage_index - 1]
                 generate_button = self.minimax_h3_i2v_panjang_generate_buttons[stage_index - 1]
                 prompt_input.setMinimumHeight(240)
                 page_layout.addWidget(
-                    self.minimax_h3_i2v_panjang_editor_panels[stage_index - 1],
-                    1, 0, 1, 4,
+                    self._prompt_guide_button(
+                        [],
+                        "",
+                        handler=self._open_minimax_i2v_prompt_guide,
+                    ),
+                    1, 0, 1, 4, Qt.AlignLeft,
                 )
-                page_layout.addWidget(QLabel("Perintah kepada LLM"), 2, 0)
+                page_layout.addWidget(
+                    self.minimax_h3_i2v_panjang_editor_panels[stage_index - 1],
+                    2, 0, 1, 4,
+                )
+                page_layout.addWidget(QLabel("Perintah kepada LLM"), 3, 0)
                 page_layout.addWidget(
                     self.minimax_h3_i2v_panjang_prompt_instruction_inputs[stage_index],
-                    2, 1, 1, 3,
+                    3, 1, 1, 3,
                 )
                 prompt_actions = QHBoxLayout()
                 prompt_actions.addWidget(generate_button)
                 prompt_actions.addStretch(1)
-                page_layout.addLayout(prompt_actions, 3, 1, 1, 3)
+                page_layout.addLayout(prompt_actions, 4, 1, 1, 3)
                 self.minimax_h3_i2v_panjang_extra_rows.append((prompt_input, generate_button))
             self.minimax_h3_i2v_panjang_stage_pages.append(page)
             self.minimax_h3_i2v_panjang_stage_tabs.addTab(page, f"Proses {stage_index + 1}")
@@ -5047,25 +5085,39 @@ class SceneEditorWindow(QMainWindow):
                 page_layout.addWidget(self.minimax_h3_r2v_panjang_continuations_input, 9, 1)
                 page_layout.addWidget(QLabel("Run mulai dari tab"), 10, 0)
                 page_layout.addWidget(self.minimax_h3_r2v_panjang_run_start_input, 10, 1)
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_editor_panels[stage_index], 11, 0, 1, 4)
-                page_layout.addWidget(QLabel("Perintah kepada LLM"), 12, 0)
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_prompt_instruction_inputs[stage_index], 12, 1, 1, 3)
+                page_layout.addWidget(
+                    self._prompt_guide_button(
+                        ["complete-guide-minimax-r2v"],
+                        "Panduan Pembuatan Prompt - MiniMax H3 R2V-Panjang",
+                    ),
+                    11, 0, 1, 4, Qt.AlignLeft,
+                )
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_editor_panels[stage_index], 12, 0, 1, 4)
+                page_layout.addWidget(QLabel("Perintah kepada LLM"), 13, 0)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_prompt_instruction_inputs[stage_index], 13, 1, 1, 3)
                 actions = QHBoxLayout()
                 actions.addWidget(self.minimax_h3_r2v_panjang_generate_buttons[stage_index])
                 actions.addStretch(1)
-                page_layout.addLayout(actions, 13, 1, 1, 3)
+                page_layout.addLayout(actions, 14, 1, 1, 3)
                 self.minimax_h3_r2v_panjang_h3_cache_group = self._steps_group(
                     self.minimax_h3_r2v_panjang_h3_cache_inputs
                 )
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_h3_cache_group, 14, 0, 1, 4)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_h3_cache_group, 15, 0, 1, 4)
             else:
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_editor_panels[stage_index], 0, 0, 1, 4)
-                page_layout.addWidget(QLabel("Perintah kepada LLM"), 1, 0)
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_prompt_instruction_inputs[stage_index], 1, 1, 1, 3)
+                page_layout.addWidget(
+                    self._prompt_guide_button(
+                        ["complete-guide-minimax-r2v"],
+                        "Panduan Pembuatan Prompt - MiniMax H3 R2V-Panjang",
+                    ),
+                    0, 0, 1, 4, Qt.AlignLeft,
+                )
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_editor_panels[stage_index], 1, 0, 1, 4)
+                page_layout.addWidget(QLabel("Perintah kepada LLM"), 2, 0)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_prompt_instruction_inputs[stage_index], 2, 1, 1, 3)
                 actions = QHBoxLayout()
                 actions.addWidget(self.minimax_h3_r2v_panjang_generate_buttons[stage_index])
                 actions.addStretch(1)
-                page_layout.addLayout(actions, 2, 1, 1, 3)
+                page_layout.addLayout(actions, 3, 1, 1, 3)
             self.minimax_h3_r2v_panjang_stage_pages.append(page)
             self.minimax_h3_r2v_panjang_stage_tabs.addTab(page, f"Proses {stage_index + 1}")
         r2v_panjang_outer_layout.addWidget(self.minimax_h3_r2v_panjang_stage_tabs)
@@ -5097,16 +5149,23 @@ class SceneEditorWindow(QMainWindow):
         r2v_layout.addWidget(self.minimax_h3_r2v_video_list, 6, 1, 1, 3)
         r2v_layout.addWidget(QLabel("Audio (maks. 3)"), 7, 0)
         r2v_layout.addWidget(self.minimax_h3_r2v_audio_slots, 7, 1, 1, 3)
-        r2v_layout.addWidget(self.minimax_h3_r2v_editor_panel, 8, 0, 1, 4)
-        r2v_layout.addWidget(QLabel("Perintah kepada LLM"), 9, 0)
-        r2v_layout.addWidget(self.minimax_h3_r2v_prompt_instruction_input, 9, 1, 1, 3)
+        r2v_layout.addWidget(
+            self._prompt_guide_button(
+                ["complete-guide-minimax-r2v"],
+                "Panduan Pembuatan Prompt - MiniMax H3 R2V",
+            ),
+            8, 0, 1, 4, Qt.AlignLeft,
+        )
+        r2v_layout.addWidget(self.minimax_h3_r2v_editor_panel, 9, 0, 1, 4)
+        r2v_layout.addWidget(QLabel("Perintah kepada LLM"), 10, 0)
+        r2v_layout.addWidget(self.minimax_h3_r2v_prompt_instruction_input, 10, 1, 1, 3)
         r2v_prompt_actions = QHBoxLayout()
         r2v_prompt_actions.addWidget(self.minimax_h3_r2v_generate_prompt_button)
         r2v_prompt_actions.addStretch(1)
-        r2v_layout.addLayout(r2v_prompt_actions, 10, 1, 1, 3)
-        r2v_layout.addWidget(self.r2v_reference_notice, 11, 1, 1, 3)
+        r2v_layout.addLayout(r2v_prompt_actions, 11, 1, 1, 3)
+        r2v_layout.addWidget(self.r2v_reference_notice, 12, 1, 1, 3)
         self.minimax_h3_r2v_h3_cache_group = self._steps_group(self.minimax_h3_r2v_h3_cache_inputs)
-        r2v_layout.addWidget(self.minimax_h3_r2v_h3_cache_group, 12, 0, 1, 4)
+        r2v_layout.addWidget(self.minimax_h3_r2v_h3_cache_group, 13, 0, 1, 4)
         tabs.addTab(self.minimax_h3_r2v_tab, "MINIMAX-H3_R2V")
 
         self.s2v_tab = QWidget()
@@ -5301,7 +5360,7 @@ class SceneEditorWindow(QMainWindow):
         visible_map = {
             self.welcome_tab: not has_project,
             self.meta_tab: True,
-            self.z_tab: not is_minimax_h3 and not is_minimax_h3_r2v_panjang,
+            self.z_tab: not is_minimax_h3,
             self.z_extra_tab: scene_type == "i2v",
             self.minimax_h3_t2v_tab: is_minimax_h3,
             self.minimax_h3_i2v_tab: is_minimax_h3_i2v or is_minimax_h3_i2v_panjang,
@@ -6339,6 +6398,41 @@ class SceneEditorWindow(QMainWindow):
         self.current_scene_dir = None
         self.refresh_project_state()
         QTimer.singleShot(0, lambda snap=window_snapshot: self.restore_window_state(snap))
+
+    def _prompt_guide_button(self, document_keys, window_title, handler=None):
+        button = QToolButton(self)
+        guide_icon = QIcon.fromTheme("help-contents")
+        button.setIcon(
+            guide_icon if not guide_icon.isNull()
+            else self.style().standardIcon(QStyle.SP_MessageBoxQuestion)
+        )
+        button.setText("Panduan Pembuatan Prompt")
+        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        button.setToolTip("Buka panduan penyusunan prompt untuk mode ini.")
+        button.setStatusTip("Buka panduan penyusunan prompt untuk mode ini.")
+        keys = tuple(str(key).strip() for key in document_keys if str(key).strip())
+        if handler is not None:
+            button.clicked.connect(handler)
+        else:
+            button.clicked.connect(
+                lambda _checked=False, guide_keys=keys, title=window_title: open_help_dialog(
+                    guide_keys,
+                    self,
+                    window_title=title,
+                )
+            )
+        return button
+
+    def _open_minimax_i2v_prompt_guide(self):
+        is_long_scene = self.scene_type_combo.currentText().strip() == MINIMAX_H3_I2V_PANJANG_SCENE_TYPE
+        if is_long_scene:
+            keys = ["complete-guide-minimax-fl2v", "complete-guide-minimax-shared"]
+            title = "Panduan Pembuatan Prompt - MiniMax H3 I2V-Panjang"
+        else:
+            keys = ["complete-guide-minimax-i2v", "complete-guide-minimax-shared"]
+            title = "Panduan Pembuatan Prompt - MiniMax H3 I2V"
+        open_help_dialog(keys, self, window_title=title)
 
     def build_run_action_group(self):
         frame = QFrame(self)

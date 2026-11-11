@@ -13,6 +13,19 @@ Scene ini mengatur MiniMax H3 I2V berantai dengan maksimal empat stage. Setiap s
 - Prompt setiap stage mendeskripsikan transisi kontinu dari first frame menuju last frame.
 - FPS workflow `24`; durasi scene `0.0) sampai `15.0) detik dengan maksimal empat angka desimal.
 
+## Pembuatan prompt melalui UI
+
+Tombol `Buat Prompt` pada salah satu stage I2V-Panjang menghasilkan prompt untuk seluruh stage aktif, mulai dari Proses 1 sampai Proses N (`N = continuations + 1`).
+
+- Jika hanya satu instruksi pengguna yang diisi, instruksi tersebut dipakai sebagai arahan global untuk semua stage aktif.
+- Jika instruksi beberapa stage diisi, setiap stage memakai instruksinya sendiri.
+- Setiap stage dikirim ke LLM sebagai request multimodal terpisah dengan pasangan gambar stage tersebut.
+- Pada setiap request, `Picture 1` adalah first frame dan `Picture 2` adalah last frame lokal stage tersebut.
+- Request diproses berurutan; hasil prompt stage sebelumnya diberikan sebagai konteks kesinambungan untuk stage berikutnya.
+- Hasil batch hanya disimpan setelah semua stage aktif berhasil divalidasi. Struktur JSON tetap memakai empat slot `prompts[]`.
+
+Aturan prompt I2V-Panjang mengikuti semantik first-to-last/FL2VA: prompt harus menjelaskan jalur visual konkret dari Picture 1 menuju Picture 2, dan shot terakhir harus mencapai kondisi Picture 2. Prompt tidak boleh memakai aturan subject mapping atau token carry milik R2V-Panjang.
+
 ## Struktur prompt
 
 Root file `minimax_h3_i2v_panjang_prompt.json` tetap mempertahankan metadata dan empat slot prompt:

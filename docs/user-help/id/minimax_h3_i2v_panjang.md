@@ -181,11 +181,15 @@ Jelaskan musik yang hanya didengar oleh penonton. Isi `N/A` jika tidak ada musik
 
 ## Meminta bantuan membuat prompt
 
-Jika ingin Gemini membantu menyusun prompt untuk suatu proses, isi `Perintah kepada LLM` pada proses tersebut, lalu tekan `Buat Prompt`.
+Isi `Perintah kepada LLM` pada proses yang ingin dibuat. Jika hanya satu perintah yang diisi, perintah tersebut digunakan sebagai arahan bersama untuk semua proses aktif. Jika beberapa perintah diisi, setiap proses menggunakan perintahnya masing-masing.
 
-Gemini menggunakan `Deskripsi Adegan` dari tab `Meta`, pengaturan I2V, serta `Image awal` dan `Image akhir` proses yang dipilih.
+Tekan `Buat Prompt` pada salah satu proses. Aplikasi akan membuat prompt secara berurutan mulai dari `Proses 1` sampai proses aktif terakhir. Jadi, jika `Jumlah lanjutan` menghasilkan tiga proses aktif, tombol tersebut membuat prompt untuk Proses 1, Proses 2, dan Proses 3 sekaligus.
 
-Hasilnya ditampilkan pada editor proses yang sedang aktif. Periksa kembali isi bidikan, terutama kesesuaian antara prompt, image awal, dan image akhir.
+Setiap proses dikirim kepada Gemini dengan pasangan referensinya sendiri: `Image awal` menjadi `Picture 1` dan `Image akhir` menjadi `Picture 2`. Gemini menyusun alur perubahan yang berkesinambungan dari gambar awal menuju gambar akhir. Prompt proses berikutnya juga menerima konteks prompt proses sebelumnya agar kesinambungan adegan tetap terjaga.
+
+Gemini menggunakan `Deskripsi Adegan` dari tab `Meta`, pengaturan I2V, serta pasangan gambar pada setiap proses. Semua hasil hanya diterapkan setelah seluruh proses aktif berhasil dibuat dan divalidasi.
+
+Periksa kembali isi setiap editor, terutama kesesuaian bidikan, image awal, dan image akhir masing-masing proses.
 
 `Deskripsi Adegan` membantu Gemini memahami konteks, tetapi boleh dikosongkan.
 

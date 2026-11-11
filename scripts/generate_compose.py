@@ -1522,10 +1522,15 @@ def main(project_name, specific_scenes=None, speech_volume=1.0, no_final_merge=F
             except Exception:
                 scene_type = ''
 
-            # S2V keeps embedded speech and excludes standalone scene speech.
-            # MiniMax H3 T2V/I2V keeps its original ComfyUI audio and combines
-            # that source with standalone scene speech.
-            is_s2v = scene_type in {'minimax-h3_s2v', 'minimax-h3_r2v'}
+            # S2V and R2V keep the audio generated inside the MiniMax video
+            # and exclude standalone scene speech. R2V-Panjang has the same
+            # embedded-audio contract as R2V; it must not be normalized into
+            # a silent video during the project-level compose.
+            is_s2v = scene_type in {
+                'minimax-h3_s2v',
+                'minimax-h3_r2v',
+                'minimax-h3_r2v-panjang',
+            }
             is_minimax_h3_av = scene_type in {
                 'minimax-h3_i2v',
                 'minimax-h3_i2v-panjang',
@@ -1548,6 +1553,7 @@ def main(project_name, specific_scenes=None, speech_volume=1.0, no_final_merge=F
                 'minimax-h3_i2v',
                 'minimax-h3_i2v-panjang',
                 'minimax-h3_t2v',
+                'minimax-h3_r2v-panjang',
             }:
                 export_scene_video_to_combined(scene_dir)
                 continue
@@ -1555,6 +1561,7 @@ def main(project_name, specific_scenes=None, speech_volume=1.0, no_final_merge=F
                 'minimax-h3_i2v',
                 'minimax-h3_i2v-panjang',
                 'minimax-h3_t2v',
+                'minimax-h3_r2v-panjang',
             }:
                 output_path = export_scene_video_to_combined(scene_dir)
                 if not output_path:

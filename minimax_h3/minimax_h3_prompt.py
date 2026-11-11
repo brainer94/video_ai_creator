@@ -100,6 +100,235 @@ def synchronize_i2va_frame_instructions(entry: dict) -> dict:
     return unwrap_prompt_value(entry) if isinstance(entry, dict) else {}
 
 
+def ensure_ref2va_initial_frame_instructions(entry: dict, picture_number: int) -> dict:
+    """Make a Ref2VA prompt identify its active Picture as the initial frame.
+
+    R2V/S2V uses the full-reference contract rather than the I2VA ``reference``
+    object.  The initial-frame role is therefore expressed in the natural
+    language of the Ref2VA sections.  This helper is used for chained R2V
+    stages whose automatically carried Picture is the opening frame.
+    """
+    result = unwrap_prompt_value(entry)
+    if not isinstance(result, dict):
+        return {}
+    try:
+        picture_number = int(picture_number)
+    except (TypeError, ValueError):
+        return copy.deepcopy(result)
+    if picture_number < 1:
+        return copy.deepcopy(result)
+
+    result = copy.deepcopy(result)
+    picture = f"<Picture {picture_number}>"
+    subject_prefix = (
+        f"{picture} is the initial frame and visual reference for the entire video."
+    )
+    retention_prefix = (
+        f"{picture} (initial frame and composition): fully_preserved - preserve "
+        "the appearance, pose, lighting, background, and framing."
+    )
+    detail_prefix = f"The video begins exactly from {picture}."
+
+    def remove_initial_frame_sentence(value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        # Remove the first initial-frame sentence so repeated saves or prompt
+        # generations replace its Picture number instead of duplicating it.
+        return re.sub(
+            r"^\s*<Picture\s+\d+>[^.\n]*initial frame[^.\n]*\.\s*",
+            "",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+
+    result["subject_definitions"] = " ".join(
+        part for part in (subject_prefix, remove_initial_frame_sentence(result.get("subject_definitions"))) if part
+    ).strip()
+    result["retention_analysis"] = " ".join(
+        part for part in (retention_prefix, remove_initial_frame_sentence(result.get("retention_analysis"))) if part
+    ).strip()
+
+    shots = result.get("shots")
+    if isinstance(shots, list) and shots and isinstance(shots[0], dict):
+        first_shot = shots[0]
+        visual = str(first_shot.get("visual", "") or "").strip()
+        visual = re.sub(
+            r"^\s*The video begins exactly from <Picture\s+\d+>\.\s*",
+            "",
+            visual,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+        style_opening = str(result.get("style_opening", "") or "").strip()
+        # The requested detailed_description must begin with [Shot 1].  The
+        # authoring-only style opening is retained after the required sentence
+        # inside the first shot instead of being serialized before [Shot 1].
+        result["style_opening"] = ""
+        first_shot["visual"] = " ".join(
+            part for part in (detail_prefix, style_opening, visual) if part
+        ).strip()
+
+    return result
+
+
+def ensure_ref2va_shot_text_defaults(entry: dict) -> dict:
+    """Fill safe textual defaults for optional-sounding shot fields.
+
+    The canonical shared shot schema still requires every field to contain a
+    string. LLMs commonly return an empty dialogue value for silent scenes;
+    represent that explicitly instead of failing the whole generated prompt.
+    Other empty fields remain validation errors because they need creative
+    content rather than a generic fallback.
+    """
+    result = unwrap_prompt_value(entry)
+    if not isinstance(result, dict):
+        return {}
+    result = copy.deepcopy(result)
+    shots = result.get("shots")
+    if isinstance(shots, list):
+        for shot in shots:
+            if not isinstance(shot, dict):
+                continue
+            if not str(shot.get("dialogue", "") or "").strip():
+                shot["dialogue"] = "No dialogue."
+            if not str(shot.get("diegetic_sound", "") or "").strip():
+                shot["diegetic_sound"] = "No diegetic sound."
+    return result
+
+
+def remove_ref2va_initial_frame_instructions(entry: dict) -> dict:
+    """Remove accidental first-frame assertions from R2V-Panjang Process 1."""
+    result = unwrap_prompt_value(entry)
+    if not isinstance(result, dict):
+        return {}
+    result = copy.deepcopy(result)
+
+    for key in ("subject_definitions", "retention_analysis"):
+        text = str(result.get(key, "") or "").strip()
+        result[key] = re.sub(
+            r"^\s*<Picture\s+\d+>[^.\n]*initial frame[^.\n]*\.\s*",
+            "",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+
+    shots = result.get("shots")
+    if isinstance(shots, list) and shots and isinstance(shots[0], dict):
+        shots[0]["visual"] = re.sub(
+            r"^\s*The video begins exactly from <Picture\s+\d+>\.\s*",
+            "",
+            str(shots[0].get("visual", "") or ""),
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+    return result
+
+
+def ensure_ref2va_subject_picture_continuity(entry: dict, picture_number: int) -> dict:
+    """Remove redundant carry sentences without inventing Subject provenance."""
+    result = unwrap_prompt_value(entry)
+    if not isinstance(result, dict):
+        return {}
+    try:
+        picture_number = int(picture_number)
+    except (TypeError, ValueError):
+        return copy.deepcopy(result)
+    if picture_number < 1:
+        return copy.deepcopy(result)
+
+    result = copy.deepcopy(result)
+    subject_text = str(result.get("subject_definitions", "") or "").strip()
+    sentences = re.split(r"(?<=[.!?])\s+", subject_text)
+    subject_text = " ".join(
+        sentence.strip()
+        for sentence in sentences
+        if sentence.strip()
+        and not re.fullmatch(
+            rf"<Subject\s+\d+>\s+also appears in\s+<Picture\s+{picture_number}>\.",
+            sentence.strip(),
+            flags=re.IGNORECASE,
+        )
+    ).strip()
+    result["subject_definitions"] = subject_text
+    return result
+
+
+def validate_ref2va_subject_picture_mapping(
+    entry: dict,
+    initial_frame_picture: int | None = None,
+) -> list[str]:
+    """Require each Subject definition to preserve source and carry mapping."""
+    value = unwrap_prompt_value(entry)
+    if not isinstance(value, dict):
+        return ["Ref2VA Subject mapping harus berupa object."]
+    subject_definitions = str(value.get("subject_definitions", "") or "").strip()
+    all_text = subject_definitions + "\n" + "\n".join(
+        str(value.get(key, "") or "")
+        for key in ("summary", "retention_analysis", "overall_soundscape", "non_diegetic_music")
+    )
+    for shot in value.get("shots", []) if isinstance(value.get("shots"), list) else []:
+        if isinstance(shot, dict):
+            all_text += "\n" + "\n".join(
+                str(shot.get(key, "") or "")
+                for key in REQUIRED_SHOT_KEYS
+            )
+    subject_numbers = sorted(
+        set(re.findall(r"<Subject\s+(\d+)>", all_text, flags=re.IGNORECASE)),
+        key=lambda value: int(value),
+    )
+    errors = []
+    sentences = re.split(r"(?<=[.!?])\s+", subject_definitions)
+    for number in subject_numbers:
+        token = f"<Subject {number}>"
+        definitions = [
+            sentence.strip()
+            for sentence in sentences
+            if re.search(rf"{re.escape(token)}(?=\s|$)", sentence, flags=re.IGNORECASE)
+        ]
+        if len(definitions) > 1:
+            errors.append(f"{token} harus memiliki satu definisi lengkap, bukan kalimat duplikat.")
+        definition = definitions[0] if definitions else ""
+        if not definition:
+            errors.append(f"{token} belum memiliki definisi pada subject_definitions.")
+            continue
+        if not re.match(
+            rf"^\s*{re.escape(token)}\s+is\b",
+            definition,
+            flags=re.IGNORECASE,
+        ):
+            errors.append(
+                f"{token} harus diawali dengan format `<Subject N> is ...`."
+            )
+        if not re.search(
+            rf"^\s*{re.escape(token)}\s+is\b[^.\n]*\bfrom\s+<Picture\s+\d+>",
+            definition,
+            flags=re.IGNORECASE,
+        ):
+            errors.append(
+                f"{token} harus menjelaskan sumber dengan format `from <Picture N>`."
+            )
+        if initial_frame_picture is not None and not re.search(
+            rf"^\s*{re.escape(token)}\s+is\b[^.\n]*\band\s+also\s+appears\s+in\s+<Picture\s+{int(initial_frame_picture)}>",
+            definition,
+            flags=re.IGNORECASE,
+        ):
+            errors.append(
+                f"{token} harus menyertakan `also appears in <Picture {int(initial_frame_picture)}>` pada definisinya."
+            )
+        elif initial_frame_picture is None and not re.search(
+            rf"^\s*{re.escape(token)}\s+is\b[^.\n]*\bappears\s+in\s+<Picture\s+\d+>",
+            definition,
+            flags=re.IGNORECASE,
+        ):
+            errors.append(
+                f"{token} harus menjelaskan Picture tempat Subject muncul dengan format `appears in <Picture N>`."
+            )
+    return errors
+
+
 def empty_ref2va_prompt() -> dict:
     return {key: "" for key in REF2VA_SECTION_KEYS}
 

@@ -242,9 +242,13 @@ Jelaskan suara yang berasal dari kejadian di dalam adegan, seperti langkah kaki,
 
 ## Meminta bantuan membuat prompt
 
-Jika ingin mendapatkan bantuan Gemini, isi `Perintah kepada LLM` pada tab proses yang sedang dibuka, lalu tekan `Buat Prompt`.
+Jika ingin mendapatkan bantuan Gemini, atur `Jumlah lanjutan` sesuai jumlah proses yang ingin dibuat, isi `Perintah kepada LLM`, lalu tekan `Buat Prompt` pada salah satu proses.
 
-Gemini akan menggunakan informasi adegan, pengaturan R2V, referensi global, dan—untuk proses lanjutan—frame terakhir proses sebelumnya jika sudah tersedia. Hasilnya akan dimasukkan ke editor pada proses yang sedang aktif.
+Gemini akan menggunakan informasi adegan, referensi global, dan perintah yang diberikan untuk menyusun rangkaian prompt sesuai jumlah proses yang diminta.
+
+Jika tombol ditekan pada Proses 3, Gemini akan membuat prompt Proses 1, Proses 2, dan Proses 3 sekaligus dalam satu rangkaian yang saling berkesinambungan. Jika hanya satu perintah yang diisi, perintah tersebut dipakai sebagai arahan umum untuk seluruh proses. Jika beberapa perintah diisi, masing-masing perintah digunakan sebagai arahan untuk proses yang sesuai.
+
+Proses 1 tidak memiliki frame awal otomatis. Pada proses berikutnya, gambar tambahan yang disediakan aplikasi diperlakukan sebagai frame awal video proses tersebut. Hasil seluruh proses dimasukkan ke editor masing-masing setelah semua prompt berhasil divalidasi.
 
 Periksa kembali hasilnya sebelum menyimpan, terutama:
 

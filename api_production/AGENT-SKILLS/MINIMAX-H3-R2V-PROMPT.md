@@ -50,7 +50,7 @@ non_diegetic_music: ...
 }
 ```
 
-`shots[]` memakai struktur yang sama dengan T2VA dan I2VA. Aplikasi mengompilasi `style_opening` dan kartu shot menjadi section runtime `detailed_description`; jangan menyimpan wrapper bahasa dan jangan menulis ulang isi adegan saat mengubah struktur.
+`shots[]` memakai struktur yang sama dengan T2VA dan I2VA. Semua field shot harus berisi string yang tidak kosong. Jika tidak ada dialog, gunakan `No dialogue.`; jika tidak ada suara diegetik, gunakan `No diegetic sound.`. Aplikasi mengompilasi `style_opening` dan kartu shot menjadi section runtime `detailed_description`; jangan menyimpan wrapper bahasa dan jangan menulis ulang isi adegan saat mengubah struktur.
 
 Saat dikirim ke ComfyUI, setiap shot R2V diserialisasi dengan rentang waktu eksplisit:
 
@@ -67,11 +67,38 @@ Untuk scene `minimax-h3_r2v-panjang`, gunakan empat prompt authoring di
 terakhir proses sebelumnya sebagai Picture berikutnya pada proses 2–4. Jangan
 menulis frame carry ke array reference global.
 
+Pada proses 2-4, Picture tambahan yang ditambahkan runtime adalah frame awal
+video proses tersebut. Jika terdapat `N` gambar global, Picture ini bernomor
+`N+1`. Ikuti pola Ref2VA S2V untuk mendefinisikan perannya, bukan anchor atau
+object `reference` I2VA. Awali field berikut dengan kalimat yang sesuai nomor
+Picture aktif:
+
+```text
+subject_definitions:
+<Picture N+1> is the initial frame and visual reference for the entire video.
+
+retention_analysis:
+<Picture N+1> (initial frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.
+
+detailed_description:
+[Shot 1] The video begins exactly from <Picture N+1>.
+```
+
+Lanjutkan kalimat tersebut dengan detail adegan yang sesuai. Jangan menjelaskan
+asal Picture dari proses lain kepada LLM dan jangan menambahkan format I2VA.
+
 ## Reference aktif
 
 Token harus dibuat dari manifest aktif dengan penomoran rapat: image `<Picture N>`, video `<Video 1>`, dan audio `<Audio N>`. Gunakan hanya token yang benar-benar tersedia. `<Subject N>`, `<Shot N>`, `<d>`, `</d>`, dan speaker ID adalah token semantik yang tetap boleh digunakan.
 
 Pertahankan setiap token reference persis sama pada keenam section. Jangan mengarang, mengganti nama, atau melompati nomor token.
+
+Setiap `Subject` harus dijelaskan sumber `Picture`-nya dan pada `Picture` mana
+Subject tersebut muncul. Gunakan satu kalimat lengkap dengan pola:
+`<Subject N> is [description] from <Picture M> and also appears in <Picture K>.`
+ID Subject harus tetap sama antarproses. Pada proses 2-4, `K` adalah Picture
+frame awal otomatis pada proses tersebut. Jangan menaruh `also appears` di dalam
+kurung sebelum `is` dan jangan menambahkan kalimat Subject duplikat terpisah.
 
 ## Cara menulis enam section
 
@@ -83,4 +110,4 @@ Pertahankan setiap token reference persis sama pada keenam section. Jangan menga
 - `overall_soundscape`: ambience, suara fisik, suara manusia non-verbal, dan audio reference.
 - `non_diegetic_music`: musik latar atau `N/A`.
 
-Teks dialog dan lirik lengkap hanya ditulis pada field dialog shot sesuai aturan `MINIMAX-H3-DIALOG.md` dan referensi Ref2VA. Tombol `Buat Prompt` boleh memakai LLM untuk menghasilkan object Inggris; runtime tidak menerjemahkan prompt.
+Teks dialog dan lirik lengkap hanya ditulis pada field dialog shot sesuai aturan `MINIMAX-H3-DIALOG.md` dan referensi Ref2VA. Tombol `Buat Prompt` boleh memakai LLM untuk menghasilkan object Inggris; runtime tidak menerjemahkan prompt. Pada R2V-Panjang, tombol pada Proses N menghasilkan array prompt untuk Proses 1 sampai N dalam satu respons, lalu aplikasi memvalidasi dan menyimpan seluruh hasil secara atomik.

@@ -17,6 +17,7 @@ from gemini.gemini_image import find_gemini_key
 from scripts.server_config import load_server_config
 from minimax_h3.minimax_h3_prompt import (
     REF2VA_SECTION_KEYS,
+    ensure_ref2va_shot_text_defaults,
     normalize_ref2va_authoring_prompt,
     serialize_ref2va_prompt,
     validate_ref2va_prompt,
@@ -471,7 +472,41 @@ class PromptTranslator:
             "Active MiniMax H3 mode: Ref2VA" in str(context or "")
             and "Target: MiniMax H3 R2V" in str(context or "")
         )
-        if is_r2v_ref2va:
+        is_r2v_panjang_batch = "R2V-Panjang BATCH" in str(context or "")
+        if is_r2v_panjang_batch:
+            instruction = (
+                "You are a senior MiniMax H3 R2V-Panjang Ref2VA video prompt engineer.\n"
+                "Generate one connected canonical English R2VA authoring object for each requested process.\n"
+                "Return exactly one JSON object with a `prompts` array, in process order. Do not collapse the "
+                "processes into one prompt and do not omit a requested process.\n"
+                "Each array item must use exactly these fields: mode, style_opening, subject_definitions, summary, "
+                "retention_analysis, shots, overall_soundscape, and non_diegetic_music. Set mode to R2VA.\n"
+                "Do not return detailed_description; the application compiles style_opening and shots into it.\n"
+                "Every shot must contain shot_id, numeric start/end, visual, action, camera, dialogue, and diegetic_sound.\n"
+                "Every required shot field must contain a non-empty string. If there is no spoken dialogue, use "
+                "`No dialogue.`. If there is no diegetic sound, use `No diegetic sound.`.\n"
+                "Follow the per-process instructions and shot counts in the context. Keep the visual and narrative "
+                "continuity between the returned process prompts.\n"
+                "Process 1 has no initial-frame image: treat global Pictures only as reference assets and do not "
+                "say that the video begins exactly from any Picture. For every later process, use only the supplied "
+                "initial-frame Picture number and follow its exact Ref2VA opening sentences. Do not mention another "
+                "process as the source of that Picture and do not use the I2VA reference object or anchor.\n"
+                "For every process, define every Subject with its source Picture or Pictures and state where that "
+                "Subject appears. For every later process, every Subject definition must explicitly include the exact "
+                "phrase `also appears in <Picture N>` using the initial-frame Picture number supplied in the context. "
+                "Use one complete sentence per Subject in this order: `<Subject N> is [description] from <Picture M> "
+                "and also appears in <Picture N>.` Do not put `also appears` in parentheses before `is` and do not "
+                "add a separate duplicate Subject sentence. Keep Subject IDs stable across all process objects.\n"
+                "Use only the active Picture, Video, and Audio tokens listed in the context. Preserve every token "
+                "exactly and never invent, rename, or renumber a reference.\n"
+                'Return JSON only in this shape: {"prompts":[{"mode":"R2VA","style_opening":"...",'
+                '"subject_definitions":"...","summary":"...","retention_analysis":"...",'
+                '"shots":[{"shot_id":"Shot 1","start":0.0,"end":5.0,"visual":"...",'
+                '"action":"...","camera":"...","dialogue":"...",'
+                '"diegetic_sound":"..."}],"overall_soundscape":"...",'
+                '"non_diegetic_music":"..."}]}'
+            )
+        elif is_r2v_ref2va:
             instruction = (
                 "You are a senior MiniMax H3 R2V Ref2VA video prompt engineer.\n"
                 "Generate only the canonical English authoring object as JSON.\n"
@@ -481,8 +516,15 @@ class PromptTranslator:
                 "style_opening and shots into that runtime section.\n"
                 "Each shot must use the shared shape with shot_id, numeric start/end, visual, action, "
                 "camera, dialogue, and diegetic_sound.\n"
+                "Every required shot field must contain a non-empty string. If a shot has no spoken dialogue, "
+                "set dialogue exactly to `No dialogue.`; never return an empty dialogue string. If there is no "
+                "diegetic sound, set diegetic_sound to `No diegetic sound.`.\n"
                 "Use only the active reference tokens listed in the context; do not invent, rename, "
                 "or renumber Picture, Video, or Audio labels. Preserve technical tokens exactly.\n"
+                "If the context contains an R2V-Panjang INITIAL FRAME RULE, follow it exactly: "
+                "begin subject_definitions and retention_analysis with the supplied Picture sentence, "
+                "and begin the first shot visual with the supplied `The video begins exactly from <Picture N>.` sentence. "
+                "Continue those sentences with scene-specific details. Do not mention another process or use the I2VA reference object.\n"
                 'Return JSON only in this shape: {"mode":"R2VA","style_opening":"...",'
                 '"subject_definitions":"...","summary":"...","retention_analysis":"...",'
                 '"shots":[{"shot_id":"Shot 1","start":0.0,"end":5.0,"visual":"...",'
@@ -501,6 +543,7 @@ class PromptTranslator:
         elif "MiniMax H3" in str(context or ""):
             active_mode = str(context or "")
             expected_mode = "I2VA" if "Active MiniMax H3 mode: I2VA" in active_mode else "T2VA"
+            is_i2v_panjang = "I2V-Panjang FL2VA" in active_mode
             mode_instruction = (
                 "The target is a MiniMax H3 audiovisual video prompt. Follow the MiniMax H3 base prompt guide.\n"
                 "This is the creative generation phase. Return only the canonical English workflow object.\n"
@@ -524,6 +567,14 @@ class PromptTranslator:
                     "This is I2VA. The object must additionally contain reference with picture Picture 1, source [Shot 1], time 0.0, and instruction fully referenced.\n"
                     "The reference object is structural metadata; do not replace it with a text alignment field or an integrated_multimodal_description key.\n"
                 )
+                if is_i2v_panjang:
+                    mode_instruction += (
+                        "This is one I2V-Panjang process using first-and-last-frame semantics. "
+                        "<Picture 1> is the exact initial frame at 0.00 seconds and <Picture 2> is the exact final frame at the end of this process. "
+                        "Describe a concrete, continuous visual path from Picture 1 to Picture 2; do not merely describe two static images. "
+                        "The final shot must naturally reach and preserve the state shown by Picture 2. "
+                        "Do not mention another process, previous process, or process transition in the creative prompt.\n"
+                    )
             elif "Active MiniMax H3 mode: T2VA" in active_mode:
                 output_shape = (
                     '{"mode":"T2VA","shots":[{"shot_id":"Shot 1",'
@@ -582,6 +633,30 @@ class PromptTranslator:
         self.last_call_metrics = self._gemini.last_call_metrics
         if is_r2v_ref2va:
             raw_payload = _parse_json_object_response(response_text)
+            if is_r2v_panjang_batch:
+                raw_entries = raw_payload.get("prompts") if isinstance(raw_payload, dict) else None
+                if not isinstance(raw_entries, list) and isinstance(raw_payload, dict):
+                    wrapped_value = raw_payload.get("positive_prompt")
+                    if isinstance(wrapped_value, dict):
+                        raw_entries = wrapped_value.get("prompts")
+                if not isinstance(raw_entries, list) or not raw_entries:
+                    raise RuntimeError("Response MiniMax H3 R2V-Panjang harus memiliki array prompts yang tidak kosong.")
+                normalized_entries = []
+                errors = []
+                for index, raw_entry in enumerate(raw_entries, start=1):
+                    normalized = normalize_ref2va_authoring_prompt(raw_entry)
+                    if isinstance(normalized, dict):
+                        normalized["mode"] = "R2VA"
+                        normalized = ensure_ref2va_shot_text_defaults(normalized)
+                    normalized_entries.append(normalized)
+                    entry_errors = validate_ref2va_prompt(normalized)
+                    errors.extend(f"prompts[{index}].{error}" for error in entry_errors)
+                if errors:
+                    raise RuntimeError(
+                        "Response MiniMax H3 R2V-Panjang tidak valid: "
+                        + "; ".join(errors[:3])
+                    )
+                return {"prompts": normalized_entries}
             raw_value = raw_payload.get("positive_prompt", raw_payload) if isinstance(raw_payload, dict) else {}
             raw_value = normalize_ref2va_authoring_prompt(raw_value)
             if isinstance(raw_value, dict):

@@ -29,13 +29,34 @@ Jangan menambahkan `id_new`, `id_old`, `en`, wrapper translasi, atau format prom
 
 `references.audios` maksimal tiga item dan `references.video` maksimal satu item. Token Audio dan Video juga mengikuti urutan array, bukan urutan abjad nama file.
 
+Pada proses 2-4, Picture tambahan setelah referensi global diperlakukan sebagai
+frame awal video proses tersebut. Jika ada `N` gambar global, gunakan token
+`<Picture N+1>`. Definisikan dengan pola Ref2VA seperti S2V:
+
+```text
+<Picture N+1> is the initial frame and visual reference for the entire video.
+<Picture N+1> (initial frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.
+[Shot 1] The video begins exactly from <Picture N+1>.
+```
+
+Kalimat setelah pembuka disesuaikan dengan adegan. Prompt tidak perlu menjelaskan
+bahwa Picture tersebut berasal dari proses sebelumnya, dan tidak memakai object
+atau anchor first-frame I2VA.
+
+Setiap Subject harus menyebutkan Picture sumbernya dan semua Picture tempat
+Subject tersebut muncul dalam satu kalimat lengkap, misalnya:
+`<Subject 1> is the man in the tech armor from <Picture 1> and also appears in <Picture N+1>.`
+Pada proses 2-4, ulangi pola tersebut untuk setiap Subject, bukan hanya
+menyebutkan frame awal satu kali secara umum. ID Subject harus konsisten pada
+seluruh proses dan jangan membuat kalimat Subject duplikat terpisah.
+
 ## Input UI
 
 Tab `MINIMAX-H3_R2V-PANJANG` mengikuti layout `MINIMAX-H3_I2V-PANJANG`:
 
 - tab `Proses 1` sampai `Proses 4`;
 - ukuran, LoRA, mode, sound, cache, dan manifest reference global pada Proses 1;
-- editor prompt dan instruksi `Buat Prompt` pada setiap proses;
+- editor prompt dan instruksi `Buat Prompt` pada setiap proses; tombol pada Proses N dapat membuat prompt Proses 1 sampai N sekaligus dalam satu respons Gemini;
 - jumlah lanjutan dan proses awal run pada Proses 1.
 
 Frame carry tidak dipilih manual dan tidak disimpan sebagai reference global. UI hanya menampilkannya sebagai reference tambahan pada editor proses yang relevan setelah file frame tersedia.

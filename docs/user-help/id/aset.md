@@ -18,7 +18,7 @@ Tab `Aset` menampilkan semua gambar, audio, dan video yang tersedia pada adegan 
 Daftar dapat berisi:
 
 - gambar hasil `Gambar Awal` atau `Prompt Tambahan`;
-- gambar hasil `Qwen Image Edit`;
+- gambar hasil `Image Edit`;
 - gambar yang digunakan sebagai referensi video;
 - audio speech atau audio referensi;
 - video hasil proses atau video referensi.
@@ -39,7 +39,7 @@ Pilih file dari daftar pilihan pada tab yang sesuai. Contohnya:
 
 - gambar awal digunakan oleh MiniMax H3 I2V, S2V, `i2v`, `image_pan`, dan `image_zoom`;
 - gambar, audio, dan video dapat dipilih sebagai referensi pada MiniMax H3 R2V;
-- gambar dipilih sebagai bahan edit pada `Qwen Image Edit`.
+- gambar dipilih sebagai bahan edit pada `Image Edit`.
 
 Untuk `i2v` biasa, semua gambar yang berada langsung di folder aset utama dapat digunakan dan urutannya mengikuti nama file secara alfabetis. Gunakan nama dengan awalan angka bila urutan gambar penting.
 

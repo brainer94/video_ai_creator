@@ -24,7 +24,7 @@ Portable to any agent that can read local files; no external API calls, MiniMax 
 
 Use `integrated_multimodal_description`, `overall_soundscape`, and `non_diegetic_music` in the order shown in `references/base-en.txt`.
 
-For T2VA, I2VA, and R2V authoring, use the shared `shots[]` item shape: `shot_id`, numeric `start`/`end`, `visual`, `action`, `camera`, `dialogue`, and `diegetic_sound`. R2V authoring uses the same `shots[]` shape and compiles it to Ref2VA `detailed_description` for runtime. `minimax-h3_r2v-panjang` keeps four R2V prompt objects in `prompts[]`; its runtime adds the previous process last frame after the global Picture references for processes 2–4.
+For T2VA, I2VA, and R2V authoring, use the shared `shots[]` item shape: `shot_id`, numeric `start`/`end`, `visual`, `action`, `camera`, `dialogue`, and `diegetic_sound`. R2V authoring uses the same `shots[]` shape and compiles it to Ref2VA `detailed_description` for runtime. `minimax-h3_r2v-panjang` keeps four R2V prompt objects in `prompts[]`; its runtime allows an optional Process 1 initial image after the global Picture references and adds the previous process last frame in that same position for processes 2–4.
 
 ## Full-Reference Mode
 

@@ -42,6 +42,7 @@ Kelompok yang tersedia:
 
 - `MiniMax H3` untuk mode normal;
 - `MiniMax H3 Mode Cepat`;
+- `MiniMax H3 Image`;
 - `Flux 2`;
 - `Z Image Turbo`;
 - `Qwen Image Edit`.

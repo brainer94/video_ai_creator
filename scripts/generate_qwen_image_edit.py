@@ -8,7 +8,14 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from qwen_image_edit.qwen_image_edit import MAX_REFERENCE_IMAGES, build_qwen_image_edit_workflow
+from qwen_image_edit.qwen_image_edit import (
+    ENGINE_MINIMAX_H3_IMAGE,
+    MAX_REFERENCE_IMAGES,
+    MINIMAX_SAMPLER_NODE,
+    build_qwen_image_edit_workflow,
+    engine_label,
+    normalize_engine,
+)
 from logging_config import setup_logging, write_log
 from prompt_localization import read_json_for_runtime
 from scripts import comfyui_api
@@ -73,8 +80,9 @@ def _load_prompt(scene_dir: Path, prompt_file: str, resolve_runtime: bool = True
             payload = json.load(prompt_handle)
     if not isinstance(payload, dict):
         raise RuntimeError(f"Format file prompt tidak valid: {filename}")
+    payload["engine"] = normalize_engine(payload.get("engine"))
     if not str(payload.get("positive_prompt", "")).strip():
-        raise RuntimeError("Prompt positif Qwen Image Edit wajib diisi.")
+        raise RuntimeError("Prompt positif Image Edit wajib diisi.")
     images = payload.get("images", [])
     if not isinstance(images, list):
         images = []
@@ -84,12 +92,13 @@ def _load_prompt(scene_dir: Path, prompt_file: str, resolve_runtime: bool = True
 
 def process_scene(scene_dir: Path, server: str, prompt: dict) -> Path:
     prompt = dict(prompt or {})
+    prompt["engine"] = normalize_engine(prompt.get("engine"))
     try:
         number_of_edits = int(prompt.get("number_of_edits", 1))
     except (TypeError, ValueError) as exc:
-        raise RuntimeError("Jumlah Edit Qwen harus berupa bilangan bulat lebih besar dari 0.") from exc
+        raise RuntimeError("Jumlah Edit harus berupa bilangan bulat lebih besar dari 0.") from exc
     if number_of_edits <= 0:
-        raise RuntimeError("Jumlah Edit Qwen harus lebih besar dari 0.")
+        raise RuntimeError("Jumlah Edit harus lebih besar dari 0.")
     configured_images = prompt.get("images", [])
     uploaded_images = []
     for image_name in configured_images[:MAX_REFERENCE_IMAGES]:
@@ -102,25 +111,29 @@ def process_scene(scene_dir: Path, server: str, prompt: dict) -> Path:
         uploaded_images.append(_extract_uploaded_name(upload_info, source_path.name))
     uploaded_images.extend([""] * (MAX_REFERENCE_IMAGES - len(uploaded_images)))
 
+    if prompt["engine"] == ENGINE_MINIMAX_H3_IMAGE and not any(uploaded_images):
+        raise RuntimeError("MiniMax H3 Image membutuhkan minimal satu gambar referensi.")
+
     used_random_seeds = set()
     last_output_path = None
     for edit_index in range(number_of_edits):
         workflow = build_qwen_image_edit_workflow(prompt, uploaded_images=uploaded_images)
-        seed = workflow.get("507", {}).get("inputs", {}).get("seed")
+        seed_node_id = MINIMAX_SAMPLER_NODE if prompt["engine"] == ENGINE_MINIMAX_H3_IMAGE else "507"
+        seed = workflow.get(seed_node_id, {}).get("inputs", {}).get("seed")
         if bool(prompt.get("use_random_seed", True)):
             while seed in used_random_seeds:
                 workflow = build_qwen_image_edit_workflow(prompt, uploaded_images=uploaded_images)
-                seed = workflow.get("507", {}).get("inputs", {}).get("seed")
+                seed = workflow.get(seed_node_id, {}).get("inputs", {}).get("seed")
             used_random_seeds.add(seed)
         write_log(
-            f"Qwen Image Edit {edit_index + 1}/{number_of_edits}: "
+            f"{engine_label(prompt['engine'])} {edit_index + 1}/{number_of_edits}: "
             f"mengirim workflow baru, seed={seed}"
         )
         result = comfyui_api.post_workflow_api(workflow, server)
         prompt_id = result.get("prompt_id") or result.get("id")
         if not prompt_id:
             raise RuntimeError(f"ComfyUI tidak mengembalikan prompt_id: {json.dumps(result)}")
-        write_log(f"Qwen Image Edit workflow terkirim, prompt_id={prompt_id}")
+        write_log(f"{engine_label(prompt['engine'])} workflow terkirim, prompt_id={prompt_id}")
 
         image_out = comfyui_api.wait_for_output(
             server,
@@ -132,17 +145,17 @@ def process_scene(scene_dir: Path, server: str, prompt: dict) -> Path:
         if not image_out:
             raise RuntimeError(f"Output image tidak ditemukan (prompt_id={prompt_id})")
         last_output_path = _download_comfy_image(server, image_out, scene_dir)
-        write_log(f"Qwen Image Edit {edit_index + 1}/{number_of_edits} selesai: {last_output_path}")
+        write_log(f"{engine_label(prompt['engine'])} {edit_index + 1}/{number_of_edits} selesai: {last_output_path}")
     return last_output_path
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate Qwen Image Edit for one scene")
+    parser = argparse.ArgumentParser(description="Generate Image Edit for one scene")
     parser.add_argument("--server", "-s", default=get_server_address("comfyui"), help="ComfyUI server host:port")
     parser.add_argument("--project", "-p", required=True, help="Nama project di dalam folder api_production")
     parser.add_argument("--scene", "-S", required=True, help="Nama scene, contoh scene_1")
     parser.add_argument("--prompt-file", default="qwen_image_edit_prompt.json", help="Nama file prompt scene")
-    parser.add_argument("--number-of-edits", type=int, default=1, help="Jumlah workflow Qwen yang dikirim")
+    parser.add_argument("--number-of-edits", type=int, default=1, help="Jumlah workflow Image Edit yang dikirim")
     args = parser.parse_args()
 
     setup_logging()
@@ -154,16 +167,16 @@ def main():
 
     try:
         if args.number_of_edits <= 0:
-            raise RuntimeError("Jumlah Edit Qwen harus lebih besar dari 0.")
+            raise RuntimeError("Jumlah Edit harus lebih besar dari 0.")
         prompt = _load_prompt(scene_dir, args.prompt_file)
-        write_log("[Qwen] Mengirim workflow ke ComfyUI")
+        write_log(f"[{engine_label(prompt['engine'])}] Mengirim workflow ke ComfyUI")
         prompt["number_of_edits"] = args.number_of_edits
 
         output_path = process_scene(scene_dir, args.server, prompt)
         print(f"OK: {output_path}")
         return 0
     except Exception as exc:
-        write_log(f"Gagal generate Qwen Image Edit: {exc}", level="error")
+        write_log(f"Gagal generate Image Edit: {exc}", level="error")
         print(f"Failed: {exc}")
         return 1
 

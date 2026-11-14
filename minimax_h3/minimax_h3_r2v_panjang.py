@@ -24,7 +24,12 @@ def build_default_prompt() -> dict:
         for _ in range(MAX_PROMPTS)
     ]
     base["prompt_instructions"] = ["" for _ in range(MAX_PROMPTS)]
-    base["references"] = {"images": [], "audios": [], "video": ""}
+    base["references"] = {
+        "images": [],
+        "initial_image": "",
+        "audios": [],
+        "video": "",
+    }
     base["remove_sound"] = False
     return base
 

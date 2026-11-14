@@ -92,6 +92,7 @@ from prompt_localization import (
 from minimax_h3.minimax_h3_prompt import (
     I2VA_FIRST_SHOT_VISUAL_EN,
     ensure_i2va_frame_instructions,
+    ensure_ref2va_initial_frame_instructions,
     validate_ref2va_prompt,
     validate_i2va_frame_instructions,
 )
@@ -1367,6 +1368,7 @@ def process_scene(scene_dir, server):
             for value in references.get('images', [])
             if str(value).strip()
         ]
+        initial_image_name = str(references.get('initial_image', '') or '').strip()
         audio_names = [
             str(value).strip()
             for value in references.get('audios', [])
@@ -1379,16 +1381,24 @@ def process_scene(scene_dir, server):
                 "karena satu slot image dicadangkan untuk frame proses sebelumnya."
             )
             return False
+        if initial_image_name and initial_image_name in image_names:
+            write_log(
+                "frame awal Proses 1 tidak boleh sama dengan reference gambar global R2V-Panjang"
+            )
+            return False
         if len(audio_names) > 3:
             write_log("minimax-h3_r2v-panjang maksimal memiliki 3 audio reference global")
             return False
-        if not image_names and not audio_names and not video_name:
+        if not image_names and not initial_image_name and not audio_names and not video_name:
             write_log(
-                "minimax-h3_r2v-panjang membutuhkan minimal satu reference image, audio, atau video global"
+                "minimax-h3_r2v-panjang membutuhkan minimal satu reference image, initial image Proses 1, audio, atau video"
             )
             return False
 
-        reference_paths = [os.path.join(scene_dir, name) for name in image_names + audio_names]
+        reference_paths = [
+            os.path.join(scene_dir, name)
+            for name in image_names + ([initial_image_name] if initial_image_name else []) + audio_names
+        ]
         if video_name:
             reference_paths.append(os.path.join(scene_dir, video_name))
         missing = [path for path in reference_paths if not os.path.isfile(path)]
@@ -1471,7 +1481,21 @@ def process_scene(scene_dir, server):
             stage_prompt['positive_prompt'] = copy.deepcopy(raw_entry)
 
             stage_images = list(uploaded_images)
-            if stage_number > 1:
+            if stage_number == 1 and initial_image_name:
+                uploaded_initial_image = _upload_to_comfy(
+                    os.path.join(scene_dir, initial_image_name)
+                )
+                if not uploaded_initial_image:
+                    write_log(
+                        f"gagal upload image awal Proses 1 untuk R2V panjang {scene_dir}"
+                    )
+                    return False
+                stage_images.append(uploaded_initial_image)
+                stage_prompt['positive_prompt'] = ensure_ref2va_initial_frame_instructions(
+                    stage_prompt['positive_prompt'],
+                    len(stage_images),
+                )
+            elif stage_number > 1:
                 carry_frame = generated_frames.get(stage_number - 1)
                 if not carry_frame or not os.path.isfile(carry_frame):
                     write_log(

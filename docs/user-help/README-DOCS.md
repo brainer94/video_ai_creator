@@ -39,6 +39,7 @@ Pada bagian download model tersedia beberapa kelompok:
 
 - `MiniMax H3` untuk mode normal;
 - `MiniMax H3 Mode Cepat`;
+- `MiniMax H3 Image`;
 - `Flux 2`;
 - `Z Image Turbo`;
 - `Qwen Image Edit`.
@@ -145,7 +146,7 @@ Untuk membuat voice pada beberapa adegan sekaligus, tekan tombol voice pada grup
 - [I2V](id/i2v.md)
 - [Image Pan](id/image_pan.md)
 - [Image Zoom](id/image_zoom.md)
-- [Qwen Image Edit](id/qwen_image_edit.md)
+- [Image Edit](id/qwen_image_edit.md)
 - [Aset](id/aset.md)
 - [Konfigurasi Project](id/konfigurasi_project.md)
 - [Download LoRA](id/download_lora.md)

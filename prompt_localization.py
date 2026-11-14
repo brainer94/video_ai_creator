@@ -7,10 +7,13 @@ import ast
 import logging
 import re
 import time
+from functools import lru_cache
+from math import gcd
 from pathlib import Path
 from typing import Callable
 
 import requests
+from PIL import Image, ImageOps
 from scripts.timeout_config import LLM_CALL_TIMEOUT_SECONDS
 
 from gemini.gemini_image import find_gemini_key
@@ -39,6 +42,9 @@ QWEN_IMAGE_EDIT_SYSTEM_PROMPT_URL = (
 QWEN_IMAGE_EDIT_SYSTEM_PROMPT_PATH = (
     Path(__file__).resolve().parent / "qwen_image_edit" / "system_prompt_edit.txt"
 )
+MINIMAX_H3_IMAGE_EDIT_PROMPT_PATH = (
+    Path(__file__).resolve().parent / "minimax_h3_image_edit" / "edit-en.txt"
+)
 
 
 def _load_qwen_image_edit_system_prompt() -> str:
@@ -54,6 +60,51 @@ def _load_qwen_image_edit_system_prompt() -> str:
     return prompt
 
 
+@lru_cache(maxsize=1)
+def _load_minimax_h3_image_edit_prompts() -> tuple[str, str]:
+    try:
+        prompt_source = MINIMAX_H3_IMAGE_EDIT_PROMPT_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(
+            "Sumber prompt MiniMax H3 Image Edit tidak ditemukan: "
+            f"{MINIMAX_H3_IMAGE_EDIT_PROMPT_PATH}"
+        ) from exc
+
+    markers = {
+        "system": (
+            "<!-- MINIMAX_H3_IMAGE_EDIT_SYSTEM_PROMPT -->",
+            "<!-- END MINIMAX_H3_IMAGE_EDIT_SYSTEM_PROMPT -->",
+        ),
+        "task": (
+            "<!-- MINIMAX_H3_IMAGE_EDIT_TASK_PROMPT -->",
+            "<!-- END MINIMAX_H3_IMAGE_EDIT_TASK_PROMPT -->",
+        ),
+    }
+
+    def marked_prompt(kind: str, label: str) -> str:
+        start_marker, end_marker = markers[kind]
+        start = prompt_source.find(start_marker)
+        if start < 0:
+            raise RuntimeError(
+                f"{label} tidak ditemukan pada {MINIMAX_H3_IMAGE_EDIT_PROMPT_PATH}."
+            )
+        start += len(start_marker)
+        end = prompt_source.find(end_marker, start)
+        if end < 0:
+            raise RuntimeError(
+                f"Penutup {label} tidak ditemukan pada {MINIMAX_H3_IMAGE_EDIT_PROMPT_PATH}."
+            )
+        value = prompt_source[start:end].strip()
+        if not value:
+            raise RuntimeError(
+                f"{label} pada {MINIMAX_H3_IMAGE_EDIT_PROMPT_PATH} kosong."
+            )
+        return value
+
+    return (
+        marked_prompt("system", "System prompt"),
+        marked_prompt("task", "Task prompt"),
+    )
 DEFAULT_PROMPT_GENERATION_MODEL = "gemini-3.1-flash-lite"
 
 
@@ -134,6 +185,8 @@ class GeminiPromptTranslator:
         timeout: int = LLM_CALL_TIMEOUT_SECONDS,
         phase: str = "call",
         image_parts: list[dict] | None = None,
+        content_parts: list[dict] | None = None,
+        system_instruction: str | None = None,
     ) -> str:
         if not self.api_key:
             raise RuntimeError(
@@ -149,6 +202,8 @@ class GeminiPromptTranslator:
             {"text": text},
         ]
         parts.extend(image_parts or [])
+        if content_parts is not None:
+            parts = list(content_parts)
         payload = {
             "contents": [
                 {
@@ -157,6 +212,10 @@ class GeminiPromptTranslator:
             ],
             "generationConfig": {},
         }
+        if system_instruction:
+            payload["systemInstruction"] = {
+                "parts": [{"text": system_instruction}],
+            }
 
         start_time = time.perf_counter()
         try:
@@ -300,6 +359,17 @@ def _load_qwen_multimodal_image_payloads(image_paths: list[str | Path]) -> list[
 
 def _load_minimax_multimodal_image_payloads(image_paths: list[str | Path]) -> list[dict]:
     """Load ordered MiniMax image attachments without exposing their bytes in logs."""
+    def aspect_ratio(path: Path) -> str:
+        try:
+            with Image.open(path) as image:
+                oriented = ImageOps.exif_transpose(image)
+                width, height = oriented.size
+            if width <= 0 or height <= 0:
+                return "aspect_ratio unavailable"
+            divisor = gcd(int(width), int(height))
+            return f"{int(width) // divisor}:{int(height) // divisor}"
+        except Exception:
+            return "aspect_ratio unavailable"
     payloads = []
     for index, raw_path in enumerate(image_paths, start=1):
         path = Path(raw_path).resolve()
@@ -308,6 +378,7 @@ def _load_minimax_multimodal_image_payloads(image_paths: list[str | Path]) -> li
         mime_type = mimetypes.guess_type(path.name)[0] or ""
         if not mime_type.startswith("image/"):
             raise ValueError(f"File referensi MiniMax bukan gambar: {path.name}")
+        ratio = aspect_ratio(path)
         payloads.append(
             {
                 "label": f"<Picture {index}>",
@@ -315,6 +386,7 @@ def _load_minimax_multimodal_image_payloads(image_paths: list[str | Path]) -> li
                 "path": str(path),
                 "mime_type": mime_type,
                 "base64": base64.b64encode(path.read_bytes()).decode("ascii"),
+                "aspect_ratio": ratio,
             }
         )
     return payloads
@@ -442,6 +514,99 @@ class PromptTranslator:
             )
         return english
 
+    def generate_minimax_h3_image_edit_prompt_multimodal(
+        self,
+        prompt_text: str,
+        image_paths: list[str | Path],
+    ) -> dict:
+        """Generate a MiniMax H3 Image prompt using Picture reference tokens."""
+        prompt_text = _clean_text(prompt_text)
+        if not prompt_text:
+            raise ValueError("Instruksi prompt MiniMax H3 Image tidak boleh kosong.")
+        references = _load_minimax_multimodal_image_payloads(image_paths)
+        if not references:
+            raise ValueError("Minimal satu gambar referensi MiniMax H3 Image harus dipilih.")
+
+        system_prompt, task_prompt = _load_minimax_h3_image_edit_prompts()
+        user_input = (
+            "User Aspect Ratio Selection: adaptive\n"
+            "User Editing Instruction: "
+            f"{json.dumps(prompt_text, ensure_ascii=False)}"
+        )
+        rendered_task_prompt = task_prompt.replace("{input text}", user_input)
+        content_parts = [{"text": rendered_task_prompt}]
+        for item in references:
+            role = (
+                "main edited base image and output canvas source"
+                if item["label"] == "<Picture 1>"
+                else "additional reference image"
+            )
+            content_parts.extend(
+                [
+                    {
+                        "text": (
+                            "Reference Media:\n"
+                            f"{item['label']}\n"
+                            f"aspect_ratio: {item['aspect_ratio']}\n"
+                            f"role: {role}"
+                        )
+                    },
+                    {
+                        "inline_data": {
+                            "mime_type": item["mime_type"],
+                            "data": item["base64"],
+                        }
+                    },
+                ]
+            )
+        audit_payload = rendered_task_prompt
+        phase = "generate_minimax_h3_image_edit_prompt_multimodal"
+        _log_llm_audit(
+            phase,
+            "gemini",
+            self.prompt_generation_model_name,
+            system_prompt,
+            audit_payload,
+            references,
+        )
+        response_text = self._gemini._call_text_model(
+            self.prompt_generation_model_name,
+            system_prompt,
+            rendered_task_prompt,
+            timeout=LLM_CALL_TIMEOUT_SECONDS,
+            phase=phase,
+            content_parts=content_parts,
+            system_instruction=system_prompt,
+        )
+        self.last_call_metrics = self._gemini.last_call_metrics
+
+        payload = _parse_json_object_response(response_text)
+        if not payload:
+            raise RuntimeError("LLM tidak mengembalikan JSON Prompt Enhancer MiniMax H3 Image yang valid.")
+        expanded_caption = _clean_text(payload.get("expanded_caption"))
+        target_aspect_ratio = _clean_text(
+            payload.get("target_aspect_ratio") or payload.get("aspect_ratio")
+        )
+        if not expanded_caption:
+            raise RuntimeError("LLM tidak mengembalikan expanded_caption MiniMax H3 Image.")
+        if not re.fullmatch(r"[1-9]\d*:[1-9]\d*", target_aspect_ratio):
+            raise RuntimeError(
+                "LLM mengembalikan target_aspect_ratio MiniMax H3 Image yang tidak valid: "
+                f"{target_aspect_ratio or '(kosong)'}"
+            )
+        allowed_labels = {item["label"] for item in references}
+        used_labels = set(re.findall(r"<Picture\s+\d+>", expanded_caption, flags=re.IGNORECASE))
+        invalid_labels = used_labels - allowed_labels
+        if invalid_labels:
+            raise RuntimeError(
+                "LLM menggunakan label Picture yang tidak tersedia: "
+                + ", ".join(sorted(invalid_labels))
+            )
+        return {
+            "expanded_caption": expanded_caption,
+            "target_aspect_ratio": target_aspect_ratio,
+        }
+
 
     def generate_prompt_to_english(self, text: str, context: str = "") -> str:
         text = _clean_text(text)
@@ -474,6 +639,17 @@ class PromptTranslator:
         )
         is_r2v_panjang_batch = "R2V-Panjang BATCH" in str(context or "")
         if is_r2v_panjang_batch:
+            batch_initial_frame_rule = (
+                "Process 1 uses the optional initial-frame Picture listed in the context as its opening frame. "
+                "Processes 2 and later reuse that Picture number for the automatically carried frame from the previous process. "
+                "Treat the actual image for that slot as process-specific."
+                if "Process 1 uses <Picture" in str(context or "")
+                else (
+                    "Process 1 has no initial-frame image: treat global Pictures only as reference assets and do not "
+                    "say that the video begins exactly from any Picture. Processes 2 and later use only the supplied "
+                    "initial-frame Picture number for the automatically carried frame."
+                )
+            )
             instruction = (
                 "You are a senior MiniMax H3 R2V-Panjang Ref2VA video prompt engineer.\n"
                 "Generate one connected canonical English R2VA authoring object for each requested process.\n"
@@ -487,10 +663,9 @@ class PromptTranslator:
                 "`No dialogue.`. If there is no diegetic sound, use `No diegetic sound.`.\n"
                 "Follow the per-process instructions and shot counts in the context. Keep the visual and narrative "
                 "continuity between the returned process prompts.\n"
-                "Process 1 has no initial-frame image: treat global Pictures only as reference assets and do not "
-                "say that the video begins exactly from any Picture. For every later process, use only the supplied "
-                "initial-frame Picture number and follow its exact Ref2VA opening sentences. Do not mention another "
-                "process as the source of that Picture and do not use the I2VA reference object or anchor.\n"
+                f"{batch_initial_frame_rule} For every later process, use only the supplied initial-frame Picture "
+                "number and follow its exact Ref2VA opening sentences. Do not mention another process as the source "
+                "of that Picture and do not use the I2VA reference object or anchor.\n"
                 "For every process, define every Subject with its source Picture or Pictures and state where that "
                 "Subject appears. For every later process, every Subject definition must explicitly include the exact "
                 "phrase `also appears in <Picture N>` using the initial-frame Picture number supplied in the context. "

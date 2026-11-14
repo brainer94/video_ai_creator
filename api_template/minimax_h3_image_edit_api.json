@@ -1,0 +1,219 @@
+{
+  "9": {
+    "inputs": {
+      "filename_prefix": "image_minimax_h3_image_edit",
+      "images": [
+        "42",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "29": {
+    "inputs": {
+      "unet_name": "MINIMAX-H3-IMAGE/minimax_h3_image_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "30": {
+    "inputs": {
+      "clip_name": "MINIMAX-H3/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "31": {
+    "inputs": {
+      "vae_name": "MINIMAX-H3-IMAGE/minimax_h3_image_vae_fp16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "32": {
+    "inputs": {
+      "prompt": [
+        "43",
+        0
+      ],
+      "width": [
+        "50",
+        0
+      ],
+      "height": [
+        "50",
+        1
+      ],
+      "clip": [
+        "30",
+        0
+      ],
+      "vae": [
+        "31",
+        0
+      ],
+      "images.image_1": [
+        "48",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3ImageConditioning",
+    "_meta": {
+      "title": "MiniMax H3 Image Conditioning",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "33": {
+    "inputs": {
+      "conditioning": [
+        "32",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "Conditioning Zero Out",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "38": {
+    "inputs": {
+      "seed": 1057082557987751,
+      "steps": 6,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "29",
+        0
+      ],
+      "positive": [
+        "32",
+        0
+      ],
+      "negative": [
+        "33",
+        0
+      ],
+      "latent_image": [
+        "32",
+        1
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "42": {
+    "inputs": {
+      "samples": [
+        "38",
+        0
+      ],
+      "vae": [
+        "31",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "43": {
+    "inputs": {
+      "value": "Prompt"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Text (user_prompt)",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "45": {
+    "inputs": {},
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "48": {
+    "inputs": {
+      "resize_type": "scale to multiple",
+      "resize_type.multiple": 32,
+      "scale_method": "area",
+      "input": [
+        "56",
+        0
+      ]
+    },
+    "class_type": "ResizeImageMaskNode",
+    "_meta": {
+      "title": "Resize Image/Mask",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "50": {
+    "inputs": {
+      "image": [
+        "48",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "Get Image Size",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  },
+  "56": {
+    "inputs": {
+      "resize_type": "scale total pixels",
+      "resize_type.megapixels": 4,
+      "scale_method": "area",
+      "input": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "ResizeImageMaskNode",
+    "_meta": {
+      "title": "Resize Image/Mask",
+      "cnr_id": "comfy-core",
+      "ver": "0.45.2"
+    }
+  }
+}

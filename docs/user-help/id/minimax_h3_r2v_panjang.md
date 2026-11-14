@@ -6,6 +6,8 @@
 
 Setiap proses membuat satu bagian video dan memiliki prompt sendiri. Setelah sebuah proses selesai, frame terakhir dari hasilnya dipakai secara otomatis sebagai referensi tambahan untuk proses berikutnya. Dengan cara ini, perubahan adegan dapat dilanjutkan dari bagian sebelumnya.
 
+Pada Proses 1, Anda dapat memilih gambar awal tambahan secara opsional. Gambar ini membantu video dimulai dari tampilan yang sudah Anda tentukan.
+
 Tersedia empat proses: `Proses 1`, `Proses 2`, `Proses 3`, dan `Proses 4`.
 
 ## Alur kerja singkat
@@ -14,7 +16,7 @@ Tersedia empat proses: `Proses 1`, `Proses 2`, `Proses 3`, dan `Proses 4`.
 2. Atur durasi adegan pada tab `Meta`. Durasi ini berlaku untuk setiap proses yang aktif.
 3. Jika membutuhkan gambar referensi baru, buka tab `Gambar Awal` dan buat gambar tersebut.
 4. Buka tab `MINIMAX-H3_R2V-PANJANG`.
-5. Pilih referensi gambar, audio, dan video yang akan digunakan bersama.
+5. Pilih referensi gambar, audio, dan video yang akan digunakan bersama. Jika diperlukan, pilih `Frame awal Proses 1` secara opsional.
 6. Tentukan jumlah proses melalui `Jumlah lanjutan`.
 7. Susun prompt untuk setiap proses yang digunakan.
 8. Atur pengaturan umum seperti ukuran, LoRA, mode, dan jumlah step.
@@ -27,50 +29,58 @@ Referensi yang dipilih pada bagian awal digunakan oleh seluruh proses yang aktif
 
 ### Referensi gambar
 
-Pilih sampai empat gambar global. Gambar-gambar ini dapat digunakan untuk menjaga identitas subjek, tampilan objek, pakaian, lingkungan, gaya visual, atau unsur lain yang ingin dipertahankan sepanjang rangkaian video.
+Pilih sampai empat gambar yang ingin digunakan bersama selama rangkaian video. Gambar-gambar ini dapat membantu menjaga identitas subjek, tampilan objek, pakaian, lingkungan, gaya visual, atau unsur lain yang ingin dipertahankan.
 
-Urutan slot gambar tetap penting. Gambar pada slot pertama menjadi `Picture 1`, gambar pada slot kedua menjadi `Picture 2`, dan seterusnya. Jika prompt menyebut nomor gambar, gunakan nomor sesuai urutan slot tersebut.
+Urutan gambar tetap penting. Gambar yang dipilih lebih dahulu menjadi acuan pertama, lalu diikuti gambar berikutnya. Saat menulis prompt, sebutkan gambar sesuai urutan yang tampil di layar.
 
 ### Referensi audio
 
-Pilih sampai tiga audio global. Audio dapat membantu model memahami karakter suara, ucapan, atau unsur audio lain yang perlu dipertahankan.
+Pilih sampai tiga audio yang ingin digunakan bersama. Audio dapat membantu menjaga karakter suara, ucapan, musik, atau suasana audio yang diperlukan.
 
-Urutan slot audio juga tetap penting. Audio pertama menjadi `Audio 1`, audio kedua menjadi `Audio 2`, dan audio ketiga menjadi `Audio 3`.
+Urutan audio juga tetap penting. Audio pertama menjadi acuan pertama, lalu diikuti audio berikutnya.
 
 ### Referensi video
 
-Pilih paling banyak satu video global. Video dapat membantu memberikan contoh gerakan, komposisi, atau suasana visual.
+Pilih paling banyak satu video yang ingin digunakan bersama. Video dapat membantu memberikan contoh gerakan, komposisi, atau suasana visual.
 
-Tidak harus mengisi semua jenis referensi. Namun, setidaknya satu referensi gambar, audio, atau video harus dipilih agar adegan dapat dijalankan.
+Tidak harus mengisi semua jenis referensi. Namun, setidaknya satu gambar, audio, video, atau `Frame awal Proses 1` harus dipilih agar adegan dapat dijalankan.
 
-Referensi global yang dipilih harus tetap tersedia di aset adegan saat proses dijalankan. Hindari memilih file yang sama lebih dari satu kali.
+### Frame awal Proses 1
+
+`Frame awal Proses 1` bersifat opsional. Jika dipilih, video Proses 1 dimulai dari gambar tersebut. Gambar ini hanya digunakan untuk Proses 1 dan diletakkan setelah gambar-gambar yang dipilih bersama.
+
+Jika tidak dipilih, Proses 1 tetap berjalan menggunakan gambar, audio, atau video yang tersedia. Proses 2-4 selalu melanjutkan dari frame terakhir proses sebelumnya secara otomatis.
+
+Semua gambar yang dipilih, termasuk frame awal, harus tetap tersedia di aset adegan saat proses dijalankan. Hindari memilih file yang sama lebih dari satu kali.
 
 ## Frame yang diteruskan antarproses
 
-Frame terakhir dari proses sebelumnya bukan dipilih secara manual. Aplikasi mengambilnya otomatis setelah proses tersebut selesai.
+Frame terakhir dari proses sebelumnya bukan dipilih secara manual. Aplikasi mengambilnya secara otomatis setelah proses tersebut selesai.
 
 Alurnya sebagai berikut:
 
 ```text
 Proses 1 selesai
         ↓
-Frame terakhir Proses 1 menjadi referensi tambahan Proses 2
+Frame terakhir Proses 1 menjadi gambar awal Proses 2
         ↓
 Proses 2 selesai
         ↓
-Frame terakhir Proses 2 menjadi referensi tambahan Proses 3
+Frame terakhir Proses 2 menjadi gambar awal Proses 3
         ↓
 Proses 3 selesai
         ↓
-Frame terakhir Proses 3 menjadi referensi tambahan Proses 4
+Frame terakhir Proses 3 menjadi gambar awal Proses 4
 ```
 
-Pada setiap proses setelah Proses 1, model menerima:
+Pada Proses 1, aplikasi menggunakan semua gambar yang dipilih bersama dan, jika dipilih, `Frame awal Proses 1` sebagai titik awal video.
 
-- semua referensi global yang dipilih;
-- satu frame tambahan dari hasil proses sebelumnya.
+Pada setiap proses setelah Proses 1, aplikasi menggunakan:
 
-Frame tambahan tersebut membantu proses berikutnya melanjutkan tampilan dari akhir video sebelumnya. Karena itu, tidak perlu menyediakan atau memilih slot khusus untuk frame tersebut.
+- semua gambar yang dipilih bersama;
+- frame terakhir dari hasil proses sebelumnya.
+
+Frame terakhir tersebut membantu proses berikutnya melanjutkan tampilan dari akhir video sebelumnya. Anda tidak perlu memilihnya secara manual.
 
 Jika rangkaian dimulai dari Proses 1, frame untuk proses berikutnya akan tersedia secara otomatis setelah proses sebelumnya selesai. Jika rangkaian dimulai langsung dari proses lanjutan melalui `Run mulai dari tab`, hasil proses-proses sebelumnya harus sudah tersedia.
 
@@ -141,7 +151,7 @@ Contoh:
 <Picture 2> shows the kitchen background and its main objects.
 ```
 
-Gunakan nomor referensi yang benar-benar dipilih. Jangan menyebut `<Picture 3>` jika hanya dua gambar global yang tersedia.
+Gunakan gambar yang benar-benar dipilih dan sebutkan sesuai urutannya. Jika memilih frame awal Proses 1, gambar tersebut menjadi gambar tambahan terakhir khusus untuk Proses 1.
 
 ### Ringkasan
 
@@ -244,11 +254,11 @@ Jelaskan suara yang berasal dari kejadian di dalam adegan, seperti langkah kaki,
 
 Jika ingin mendapatkan bantuan Gemini, atur `Jumlah lanjutan` sesuai jumlah proses yang ingin dibuat, isi `Perintah kepada LLM`, lalu tekan `Buat Prompt` pada salah satu proses.
 
-Gemini akan menggunakan informasi adegan, referensi global, dan perintah yang diberikan untuk menyusun rangkaian prompt sesuai jumlah proses yang diminta.
+Gemini akan menggunakan informasi adegan, gambar yang dipilih, dan perintah yang diberikan untuk membantu menyusun rangkaian prompt sesuai jumlah proses yang diminta.
 
 Jika tombol ditekan pada Proses 3, Gemini akan membuat prompt Proses 1, Proses 2, dan Proses 3 sekaligus dalam satu rangkaian yang saling berkesinambungan. Jika hanya satu perintah yang diisi, perintah tersebut dipakai sebagai arahan umum untuk seluruh proses. Jika beberapa perintah diisi, masing-masing perintah digunakan sebagai arahan untuk proses yang sesuai.
 
-Proses 1 tidak memiliki frame awal otomatis. Pada proses berikutnya, gambar tambahan yang disediakan aplikasi diperlakukan sebagai frame awal video proses tersebut. Hasil seluruh proses dimasukkan ke editor masing-masing setelah semua prompt berhasil divalidasi.
+Proses 1 dapat memiliki frame awal opsional. Pada proses berikutnya, aplikasi melanjutkan video dari frame terakhir proses sebelumnya. Hasil seluruh proses dimasukkan ke editor masing-masing setelah semua prompt selesai dibuat.
 
 Periksa kembali hasilnya sebelum menyimpan, terutama:
 
@@ -318,4 +328,4 @@ Sebelum dijalankan, pastikan:
 7. Pada `Proses 2`, susun prompt untuk kejadian yang melanjutkan akhir Proses 1.
 8. Simpan adegan, lalu jalankan rangkaiannya.
 
-Aplikasi akan memakai frame terakhir Proses 1 secara otomatis sebagai referensi tambahan untuk Proses 2. Video akhir akan menggabungkan bagian Proses 1 dan Proses 2 secara berurutan.
+Aplikasi akan melanjutkan Proses 2 dari frame terakhir Proses 1 secara otomatis. Video akhir akan menggabungkan bagian Proses 1 dan Proses 2 secara berurutan.

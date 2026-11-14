@@ -34,8 +34,12 @@ from gemini.gemini_image import (
 )
 from qwen_image_edit.qwen_image_edit import (
     DEFAULT_PROMPT as QWEN_IMAGE_EDIT_DEFAULT_PROMPT,
+    DEFAULT_ENGINE as QWEN_IMAGE_EDIT_DEFAULT_ENGINE,
+    ENGINE_MINIMAX_H3_IMAGE as QWEN_IMAGE_EDIT_ENGINE_MINIMAX_H3_IMAGE,
+    ENGINE_OPTIONS as QWEN_IMAGE_EDIT_ENGINE_OPTIONS,
     MAX_REFERENCE_IMAGES as QWEN_IMAGE_EDIT_MAX_REFERENCE_IMAGES,
     SIZE_OPTIONS as QWEN_IMAGE_EDIT_SIZE_OPTIONS,
+    normalize_engine as normalize_qwen_image_edit_engine,
 )
 from gemini.gemini_tts import (
     GEMINI_TTS_MODEL_ID_EXTENDED,
@@ -197,7 +201,7 @@ HELP_DOCUMENTS = (
     ("i2v", "I2V"),
     ("image_pan", "Image Pan"),
     ("image_zoom", "Image Zoom"),
-    ("qwen_image_edit", "Qwen Image Edit"),
+    ("qwen_image_edit", "Image Edit"),
     ("aset", "Aset"),
     ("konfigurasi_umum", "Konfigurasi Umum"),
     ("konfigurasi_project", "Konfigurasi Project"),
@@ -226,6 +230,7 @@ HELP_TAB_DOCUMENT_KEYS = {
     "I2V": "i2v",
     "Image Pan": "image_pan",
     "Image Zoom": "image_zoom",
+    "Image Edit": "qwen_image_edit",
     "Qwen Image Edit": "qwen_image_edit",
     "Aset": "aset",
 }
@@ -1487,6 +1492,7 @@ def validate_scene_data(
         references = chained_payload.get("references", {}) if isinstance(chained_payload, dict) else {}
         references = references if isinstance(references, dict) else {}
         images = [str(value).strip() for value in references.get("images", []) if str(value).strip()]
+        initial_image = str(references.get("initial_image", "") or "").strip()
         audios = [str(value).strip() for value in references.get("audios", []) if str(value).strip()]
         video = str(references.get("video", "")).strip()
         if len(images) > MINIMAX_H3_R2V_PANJANG_MAX_GLOBAL_IMAGE_REFERENCES or len(audios) > 3:
@@ -1496,10 +1502,14 @@ def validate_scene_data(
             )
         if len(set(images)) != len(images) or len(set(audios)) != len(audios):
             issues.append("Reference global R2V-Panjang tidak boleh duplikat.")
-        if not images and not audios and not video:
-            issues.append("Scene MiniMax H3 R2V-Panjang membutuhkan minimal satu reference global.")
+        if initial_image and initial_image in images:
+            issues.append("Frame awal Proses 1 tidak boleh sama dengan reference gambar global.")
+        if not images and not initial_image and not audios and not video:
+            issues.append(
+                "Scene MiniMax H3 R2V-Panjang membutuhkan minimal satu reference image, audio, video, atau frame awal Proses 1."
+            )
         if scene_dir:
-            selected_files = images + audios + ([video] if video else [])
+            selected_files = images + ([initial_image] if initial_image else []) + audios + ([video] if video else [])
             missing = [name for name in selected_files if not (scene_dir / name).is_file()]
             if missing:
                 issues.append("Reference global R2V-Panjang tidak ditemukan: " + ", ".join(missing[:3]))
@@ -3233,6 +3243,7 @@ class PromptGenerationWorker(QObject):
         project_dir: str = "",
         multimodal_image_paths: list[str] | None = None,
         prompt_kind: str = "",
+        image_edit_engine: str = "",
         additional_instruction: str = "",
         batch_requests: list[dict] | None = None,
     ):
@@ -3242,6 +3253,7 @@ class PromptGenerationWorker(QObject):
         self.project_dir = str(project_dir or "").strip()
         self.multimodal_image_paths = [str(path) for path in (multimodal_image_paths or [])]
         self.prompt_kind = str(prompt_kind or "").strip()
+        self.image_edit_engine = str(image_edit_engine or "").strip()
         self.additional_instruction = str(additional_instruction or "").strip()
         self.batch_requests = list(batch_requests or [])
 
@@ -3260,10 +3272,23 @@ class PromptGenerationWorker(QObject):
                 # tests/plugins; the compatibility method is English-only.
                 generate_prompt = translator.generate_prompt_multilang
             if self.prompt_kind == "qwen_image_edit_multimodal":
-                result = translator.generate_qwen_image_edit_prompt_multimodal(
-                    self.prompt_text,
-                    self.multimodal_image_paths,
-                )
+                if normalize_qwen_image_edit_engine(self.image_edit_engine) == QWEN_IMAGE_EDIT_ENGINE_MINIMAX_H3_IMAGE:
+                    result = translator.generate_minimax_h3_image_edit_prompt_multimodal(
+                        self.prompt_text,
+                        self.multimodal_image_paths,
+                    )
+                    self.finished.emit(
+                        {
+                            "prompt": str(result.get("expanded_caption", "") or "").strip(),
+                            "target_aspect_ratio": str(result.get("target_aspect_ratio", "") or "").strip(),
+                        }
+                    )
+                    return
+                else:
+                    result = translator.generate_qwen_image_edit_prompt_multimodal(
+                        self.prompt_text,
+                        self.multimodal_image_paths,
+                    )
             elif self.batch_requests:
                 batch_results = []
                 previous_prompt = None
@@ -4191,12 +4216,17 @@ class SceneEditorWindow(QMainWindow):
         self.minimax_h3_r2v_panjang_image_slots = OrderedReferenceSlots(
             "Picture", MINIMAX_H3_R2V_PANJANG_MAX_GLOBAL_IMAGE_REFERENCES
         )
+        self.minimax_h3_r2v_panjang_initial_image_input = QComboBox()
+        self.minimax_h3_r2v_panjang_initial_image_input.setEditable(False)
         self.minimax_h3_r2v_panjang_audio_slots = OrderedReferenceSlots("Audio", 3)
         self.minimax_h3_r2v_panjang_video_list = QListWidget()
         self.minimax_h3_r2v_panjang_video_list.setSelectionMode(QAbstractItemView.NoSelection)
         self.minimax_h3_r2v_panjang_video_list.setMaximumHeight(120)
         self._r2v_panjang_reference_notice_scenes = set()
         self.minimax_h3_r2v_panjang_image_slots.referencesChanged.connect(
+            self._on_r2v_panjang_references_changed
+        )
+        self.minimax_h3_r2v_panjang_initial_image_input.currentIndexChanged.connect(
             self._on_r2v_panjang_references_changed
         )
         self.minimax_h3_r2v_panjang_audio_slots.referencesChanged.connect(
@@ -4452,11 +4482,26 @@ class SceneEditorWindow(QMainWindow):
         self.image_zoom_strength_input.setValue(1.3)
         self.qwen_image_edit_image_inputs = []
         self.qwen_image_edit_prompt_image_inputs = []
+        self.qwen_image_edit_target_aspect_ratio = ""
+        self.qwen_image_edit_engine_input = QComboBox()
+        for engine_key, engine_label in QWEN_IMAGE_EDIT_ENGINE_OPTIONS:
+            self.qwen_image_edit_engine_input.addItem(engine_label, engine_key)
+        default_engine_index = self.qwen_image_edit_engine_input.findData(QWEN_IMAGE_EDIT_DEFAULT_ENGINE)
+        if default_engine_index >= 0:
+            self.qwen_image_edit_engine_input.setCurrentIndex(default_engine_index)
         self.qwen_image_edit_size_input = QComboBox()
         for label, width, height in QWEN_IMAGE_EDIT_SIZE_OPTIONS:
             self.qwen_image_edit_size_input.addItem(label, (width, height))
+        self.qwen_image_edit_size_label = QLabel("Ukuran")
+        self.qwen_image_edit_size_info_label = QLabel(
+            "MiniMax H3 Image mengikuti rasio gambar pertama. "
+            "Gambar pertama diperbesar atau diperkecil ke sekitar 4 MP, "
+            "lalu dimensinya disesuaikan ke kelipatan 32."
+        )
+        self.qwen_image_edit_size_info_label.setWordWrap(True)
         self.qwen_image_edit_use_random_seed_input = QCheckBox("Random Seed")
         self.qwen_image_edit_use_random_seed_input.setChecked(True)
+        self.qwen_image_edit_seed_label = QLabel("Seed Statik")
         self.qwen_image_edit_seed_input = QLineEdit()
         self.qwen_image_edit_number_of_edits_input = QSpinBox()
         self.qwen_image_edit_number_of_edits_input.setRange(1, 2_147_483_647)
@@ -4469,6 +4514,9 @@ class SceneEditorWindow(QMainWindow):
         self.qwen_image_edit_generate_prompt_button.setText("Buat Prompt")
         self.qwen_image_edit_generate_prompt_button.clicked.connect(
             self.generate_qwen_image_edit_prompt_from_ui
+        )
+        self.qwen_image_edit_engine_input.currentIndexChanged.connect(
+            self.update_qwen_image_edit_engine_fields
         )
         self.qwen_image_edit_button = QToolButton()
         self.qwen_image_edit_button.setText("Edit Gambar")
@@ -4535,6 +4583,7 @@ class SceneEditorWindow(QMainWindow):
         self.update_minimax_h3_lora_fields_enabled()
         self.update_scene_type_tabs()
         self.update_scene_type_specific_fields()
+        self.update_qwen_image_edit_engine_fields()
         self.update_run_action_buttons_state()
         self.reload_scene_list()
         self.refresh_project_state()
@@ -4602,6 +4651,7 @@ class SceneEditorWindow(QMainWindow):
             self.image_zoom_direction_input.currentIndexChanged,
             self.image_zoom_focal_input.currentIndexChanged,
             self.image_zoom_strength_input.valueChanged,
+            self.qwen_image_edit_engine_input.currentTextChanged,
             self.qwen_image_edit_size_input.currentTextChanged,
             self.qwen_image_edit_use_random_seed_input.checkStateChanged,
             *(widget.currentTextChanged for widget in self.qwen_image_edit_image_inputs),
@@ -5107,39 +5157,42 @@ class SceneEditorWindow(QMainWindow):
                 page_layout.addLayout(r2v_panjang_mode_layout, 4, 1, 1, 3)
                 page_layout.addWidget(
                     QLabel(
-                        "Reference global (maks. 4 gambar). Proses 2–4 otomatis menambahkan "
-                        "frame terakhir proses sebelumnya sebagai image reference tambahan."
+                        "Reference global (maks. 4 gambar). Frame awal Proses 1 opsional. "
+                        "Proses 2–4 otomatis menambahkan frame terakhir proses sebelumnya "
+                        "sebagai image reference tambahan."
                     ),
                     5, 0, 1, 4,
                 )
                 page_layout.addWidget(QLabel("Gambar global"), 6, 0)
                 page_layout.addWidget(self.minimax_h3_r2v_panjang_image_slots, 6, 1, 1, 3)
-                page_layout.addWidget(QLabel("Video global (maks. 1)"), 7, 0)
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_video_list, 7, 1, 1, 3)
-                page_layout.addWidget(QLabel("Audio global (maks. 3)"), 8, 0)
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_audio_slots, 8, 1, 1, 3)
-                page_layout.addWidget(QLabel("Jumlah lanjutan"), 9, 0)
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_continuations_input, 9, 1)
-                page_layout.addWidget(QLabel("Run mulai dari tab"), 10, 0)
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_run_start_input, 10, 1)
+                page_layout.addWidget(QLabel("Frame awal Proses 1 (opsional)"), 7, 0)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_initial_image_input, 7, 1, 1, 3)
+                page_layout.addWidget(QLabel("Video global (maks. 1)"), 8, 0)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_video_list, 8, 1, 1, 3)
+                page_layout.addWidget(QLabel("Audio global (maks. 3)"), 9, 0)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_audio_slots, 9, 1, 1, 3)
+                page_layout.addWidget(QLabel("Jumlah lanjutan"), 10, 0)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_continuations_input, 10, 1)
+                page_layout.addWidget(QLabel("Run mulai dari tab"), 11, 0)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_run_start_input, 11, 1)
                 page_layout.addWidget(
                     self._prompt_guide_button(
                         ["complete-guide-minimax-r2v"],
                         "Panduan Pembuatan Prompt - MiniMax H3 R2V-Panjang",
                     ),
-                    11, 0, 1, 4, Qt.AlignLeft,
+                    12, 0, 1, 4, Qt.AlignLeft,
                 )
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_editor_panels[stage_index], 12, 0, 1, 4)
-                page_layout.addWidget(QLabel("Perintah kepada LLM"), 13, 0)
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_prompt_instruction_inputs[stage_index], 13, 1, 1, 3)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_editor_panels[stage_index], 13, 0, 1, 4)
+                page_layout.addWidget(QLabel("Perintah kepada LLM"), 14, 0)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_prompt_instruction_inputs[stage_index], 14, 1, 1, 3)
                 actions = QHBoxLayout()
                 actions.addWidget(self.minimax_h3_r2v_panjang_generate_buttons[stage_index])
                 actions.addStretch(1)
-                page_layout.addLayout(actions, 14, 1, 1, 3)
+                page_layout.addLayout(actions, 15, 1, 1, 3)
                 self.minimax_h3_r2v_panjang_h3_cache_group = self._steps_group(
                     self.minimax_h3_r2v_panjang_h3_cache_inputs
                 )
-                page_layout.addWidget(self.minimax_h3_r2v_panjang_h3_cache_group, 15, 0, 1, 4)
+                page_layout.addWidget(self.minimax_h3_r2v_panjang_h3_cache_group, 16, 0, 1, 4)
             else:
                 page_layout.addWidget(
                     self._prompt_guide_button(
@@ -5259,9 +5312,11 @@ class SceneEditorWindow(QMainWindow):
         self.qwen_image_edit_tab = QWidget()
         qwen_layout = QVBoxLayout(self.qwen_image_edit_tab)
         qwen_form = QFormLayout()
-        qwen_form.addRow("Ukuran", self.qwen_image_edit_size_input)
+        qwen_form.addRow("Model", self.qwen_image_edit_engine_input)
+        qwen_form.addRow(self.qwen_image_edit_size_label, self.qwen_image_edit_size_input)
+        qwen_form.addRow("", self.qwen_image_edit_size_info_label)
         qwen_form.addRow("", self.qwen_image_edit_use_random_seed_input)
-        qwen_form.addRow("Seed Statik", self.qwen_image_edit_seed_input)
+        qwen_form.addRow(self.qwen_image_edit_seed_label, self.qwen_image_edit_seed_input)
         qwen_layout.addLayout(qwen_form)
 
         qwen_images_layout = QGridLayout()
@@ -5277,7 +5332,8 @@ class SceneEditorWindow(QMainWindow):
         qwen_layout.addLayout(qwen_images_layout)
         qwen_layout.addWidget(QLabel("Positive Prompt"))
         qwen_layout.addWidget(self.qwen_image_edit_positive_input)
-        qwen_layout.addWidget(QLabel("Negative Prompt"))
+        self.qwen_image_edit_negative_label = QLabel("Negative Prompt")
+        qwen_layout.addWidget(self.qwen_image_edit_negative_label)
         qwen_layout.addWidget(self.qwen_image_edit_negative_input)
         qwen_edit_count_form = QFormLayout()
         qwen_edit_count_form.addRow("Jumlah Edit", self.qwen_image_edit_number_of_edits_input)
@@ -5300,7 +5356,7 @@ class SceneEditorWindow(QMainWindow):
         qwen_layout.addWidget(self.qwen_image_edit_prompt_instruction_input)
         qwen_layout.addWidget(self.qwen_image_edit_generate_prompt_button)
         qwen_layout.addStretch(1)
-        tabs.addTab(self.qwen_image_edit_tab, "Qwen Image Edit")
+        tabs.addTab(self.qwen_image_edit_tab, "Image Edit")
 
         self.assets_tab = QWidget()
         assets_layout = QVBoxLayout(self.assets_tab)
@@ -7053,6 +7109,21 @@ class SceneEditorWindow(QMainWindow):
             not self.qwen_image_edit_use_random_seed_input.isChecked()
         )
 
+    def update_qwen_image_edit_engine_fields(self):
+        engine = normalize_qwen_image_edit_engine(
+            self.qwen_image_edit_engine_input.currentData()
+        )
+        is_minimax = engine == QWEN_IMAGE_EDIT_ENGINE_MINIMAX_H3_IMAGE
+        self.qwen_image_edit_size_label.setVisible(not is_minimax)
+        self.qwen_image_edit_size_input.setVisible(not is_minimax)
+        self.qwen_image_edit_size_input.setEnabled(not is_minimax)
+        self.qwen_image_edit_size_info_label.setVisible(is_minimax)
+        self.qwen_image_edit_use_random_seed_input.setVisible(not is_minimax)
+        self.qwen_image_edit_seed_label.setVisible(not is_minimax)
+        self.qwen_image_edit_seed_input.setVisible(not is_minimax)
+        self.qwen_image_edit_negative_label.setVisible(not is_minimax)
+        self.qwen_image_edit_negative_input.setVisible(not is_minimax)
+
     def update_image_model_fields_enabled(self):
         model_key = str(self.z_model_input.currentData() or MODEL_Z_IMAGE_TURBO)
         is_gemini = model_key == MODEL_GEMINI_IMAGE
@@ -7762,6 +7833,7 @@ class SceneEditorWindow(QMainWindow):
             chained_references = chained_references if isinstance(chained_references, dict) else {}
             self.refresh_r2v_panjang_reference_options({
                 "images": chained_references.get("images", []),
+                "initial_image": chained_references.get("initial_image", ""),
                 "video": chained_references.get("video", ""),
                 "audios": chained_references.get("audios", []),
             })
@@ -8489,13 +8561,13 @@ class SceneEditorWindow(QMainWindow):
             return 1
         value = self.qwen_image_edit_seed_input.text().strip()
         if not value:
-            raise ValueError("Seed statik Qwen Image Edit wajib diisi saat Random Seed dimatikan.")
+            raise ValueError("Seed statik Image Edit wajib diisi saat Random Seed dimatikan.")
         try:
             parsed = int(value)
         except ValueError:
-            raise ValueError("Seed statik Qwen Image Edit harus berupa bilangan bulat positif.")
+            raise ValueError("Seed statik Image Edit harus berupa bilangan bulat positif.")
         if parsed <= 0:
-            raise ValueError("Seed statik Qwen Image Edit harus berupa bilangan bulat positif.")
+            raise ValueError("Seed statik Image Edit harus berupa bilangan bulat positif.")
         return parsed
 
     def load_qwen_image_edit_prompt(self, scene_dir: Path):
@@ -8540,6 +8612,9 @@ class SceneEditorWindow(QMainWindow):
         except (TypeError, ValueError):
             number_of_edits = int(DEFAULT_QWEN_IMAGE_EDIT_PROMPT["number_of_edits"])
         return {
+            "engine": normalize_qwen_image_edit_engine(
+                data.get("engine", QWEN_IMAGE_EDIT_DEFAULT_ENGINE)
+            ),
             "images": normalized_images,
             "width": width,
             "height": height,
@@ -8550,6 +8625,7 @@ class SceneEditorWindow(QMainWindow):
             "prompt_instruction": str(data.get("prompt_instruction", "") or "").strip(),
             "positive_prompt": prompt_text_for_ui(data.get("positive_prompt", "")),
             "negative_prompt": prompt_text_for_ui(data.get("negative_prompt", "")),
+            "target_aspect_ratio": str(data.get("target_aspect_ratio", "") or "").strip(),
         }
 
     def load_z_image_extra_prompts(self, scene_dir: Path):
@@ -8584,6 +8660,9 @@ class SceneEditorWindow(QMainWindow):
     def gather_qwen_image_edit_prompt(self):
         size = self.qwen_image_edit_size_input.currentData() or (368, 640)
         return {
+            "engine": normalize_qwen_image_edit_engine(
+                self.qwen_image_edit_engine_input.currentData()
+            ),
             "images": [
                 str(widget.currentData() or "").strip()
                 for widget in self.qwen_image_edit_image_inputs
@@ -8600,6 +8679,7 @@ class SceneEditorWindow(QMainWindow):
             "prompt_instruction": self.qwen_image_edit_prompt_instruction_input.toPlainText().strip(),
             "positive_prompt": self.qwen_image_edit_positive_input.toPlainText().strip(),
             "negative_prompt": self.qwen_image_edit_negative_input.toPlainText().strip(),
+            "target_aspect_ratio": str(self.qwen_image_edit_target_aspect_ratio or "").strip(),
         }
 
     def _refresh_qwen_image_source_options(self, combos, preferred_images=None):
@@ -8646,6 +8726,11 @@ class SceneEditorWindow(QMainWindow):
         self.refresh_qwen_image_edit_prompt_source_options(
             preferred_images=data.get("prompt_images", [])
         )
+        engine = normalize_qwen_image_edit_engine(
+            data.get("engine", QWEN_IMAGE_EDIT_DEFAULT_ENGINE)
+        )
+        engine_index = self.qwen_image_edit_engine_input.findData(engine)
+        self.qwen_image_edit_engine_input.setCurrentIndex(engine_index if engine_index >= 0 else 0)
         size_value = (int(data.get("width", 368)), int(data.get("height", 640)))
         # PySide6 does not reliably match tuple data through findData().
         # Search the stored width/height pair explicitly so a saved size such
@@ -8667,7 +8752,9 @@ class SceneEditorWindow(QMainWindow):
         self.qwen_image_edit_prompt_instruction_input.setPlainText(str(data.get("prompt_instruction", "")))
         self.qwen_image_edit_positive_input.setPlainText(str(data.get("positive_prompt", "")))
         self.qwen_image_edit_negative_input.setPlainText(str(data.get("negative_prompt", "")))
+        self.qwen_image_edit_target_aspect_ratio = str(data.get("target_aspect_ratio", "") or "").strip()
         self.update_qwen_image_edit_seed_fields_enabled()
+        self.update_qwen_image_edit_engine_fields()
 
     def load_z_image_extra_prompts_into_ui(self, scene_dir: Path):
         data = self.load_z_image_extra_prompts(scene_dir)
@@ -8898,6 +8985,9 @@ class SceneEditorWindow(QMainWindow):
     def _gather_r2v_panjang_references(self) -> dict:
         return {
             "images": self.minimax_h3_r2v_panjang_image_slots.selected_names(),
+            "initial_image": str(
+                self.minimax_h3_r2v_panjang_initial_image_input.currentData() or ""
+            ).strip(),
             "video": (self._r2v_selected_names(self.minimax_h3_r2v_panjang_video_list) or [""])[0],
             "audios": self.minimax_h3_r2v_panjang_audio_slots.selected_names(),
         }
@@ -8905,10 +8995,14 @@ class SceneEditorWindow(QMainWindow):
     def _r2v_panjang_reference_manifest_for_stage(self, stage_index: int) -> dict:
         references = self._gather_r2v_panjang_references()
         images = list(references.get("images", []))
-        if stage_index > 0:
+        initial_image = str(references.get("initial_image", "") or "").strip()
+        if stage_index == 0 and initial_image:
+            images.append(initial_image)
+        elif stage_index > 0:
             images.append(f"Frame terakhir Proses {stage_index}")
         return {
             "images": images,
+            "initial_image": initial_image if stage_index == 0 else "",
             "audios": list(references.get("audios", [])),
             "video": references.get("video", ""),
         }
@@ -8941,6 +9035,17 @@ class SceneEditorWindow(QMainWindow):
             image_names,
             list(current.get("images", []))[:MINIMAX_H3_R2V_PANJANG_MAX_GLOBAL_IMAGE_REFERENCES],
         )
+        initial_image = str(current.get("initial_image", "") or "").strip()
+        self.minimax_h3_r2v_panjang_initial_image_input.blockSignals(True)
+        self.minimax_h3_r2v_panjang_initial_image_input.clear()
+        self.minimax_h3_r2v_panjang_initial_image_input.addItem("(Tanpa gambar)", "")
+        for image_name in image_names:
+            self.minimax_h3_r2v_panjang_initial_image_input.addItem(image_name, image_name)
+        initial_index = self.minimax_h3_r2v_panjang_initial_image_input.findData(initial_image)
+        self.minimax_h3_r2v_panjang_initial_image_input.setCurrentIndex(
+            initial_index if initial_index >= 0 else 0
+        )
+        self.minimax_h3_r2v_panjang_initial_image_input.blockSignals(False)
         self.minimax_h3_r2v_panjang_audio_slots.set_references(
             audio_names,
             list(current.get("audios", []))[:3],
@@ -9025,7 +9130,9 @@ class SceneEditorWindow(QMainWindow):
             raise ValueError(
                 f"Run mulai dari tab harus berada pada tab aktif 1 sampai {active_count}."
             )
-        global_image_count = len(self._gather_r2v_panjang_references().get("images", []))
+        gathered_references = self._gather_r2v_panjang_references()
+        global_image_count = len(gathered_references.get("images", []))
+        initial_image = str(gathered_references.get("initial_image", "") or "").strip()
         prompts = []
         for stage_index, prompt_input in enumerate(
             self.minimax_h3_r2v_panjang_prompt_inputs
@@ -9043,6 +9150,11 @@ class SceneEditorWindow(QMainWindow):
                         preserved_entry,
                         global_image_count + 1,
                     )
+                elif stage_number == 1 and initial_image and preserved_entry:
+                    preserved_entry = ensure_ref2va_initial_frame_instructions(
+                        preserved_entry,
+                        global_image_count + 1,
+                    )
                 prompts.append(preserved_entry)
                 continue
             current_value = self._prompt_editor_value_from_backing(prompt_input)
@@ -9056,7 +9168,7 @@ class SceneEditorWindow(QMainWindow):
                     f"Prompt MiniMax H3 R2V-Panjang proses {stage_number} harus berupa object."
                 )
             entry["mode"] = "R2VA"
-            if stage_number > 1:
+            if stage_number > 1 or (stage_number == 1 and initial_image):
                 entry = ensure_ref2va_initial_frame_instructions(
                     entry,
                     global_image_count + 1,
@@ -9083,7 +9195,7 @@ class SceneEditorWindow(QMainWindow):
                 widget.toPlainText().strip()
                 for widget in self.minimax_h3_r2v_panjang_prompt_instruction_inputs
             ],
-            "references": self._gather_r2v_panjang_references(),
+            "references": gathered_references,
             "width": int(size[0]),
             "height": int(size[1]),
             "lora_name": self.minimax_h3_r2v_panjang_lora_name_input.currentText().strip(),
@@ -9510,11 +9622,17 @@ class SceneEditorWindow(QMainWindow):
                         pass
                     if str(stage or "").startswith("r2v_panjang_batch_"):
                         manifest = self._gather_r2v_panjang_references()
-                        if stage_number > 1:
+                        if stage_number == 1 and manifest.get("initial_image"):
+                            manifest = copy.deepcopy(manifest)
+                            manifest["images"] = list(manifest.get("images", [])) + [
+                                manifest["initial_image"]
+                            ]
+                        elif stage_number > 1:
                             manifest = copy.deepcopy(manifest)
                             manifest["images"] = list(manifest.get("images", [])) + [
                                 "automatic initial-frame image"
                             ]
+                            manifest["initial_image"] = ""
                     else:
                         manifest = self._r2v_panjang_reference_manifest_for_stage(
                             max(0, stage_number - 1)
@@ -9614,21 +9732,32 @@ class SceneEditorWindow(QMainWindow):
                 f"Image size: {int(size_data[0])}x{int(size_data[1])}",
             ])
         elif prompt_kind == "qwen_image_edit":
+            engine = normalize_qwen_image_edit_engine(
+                self.qwen_image_edit_engine_input.currentData()
+            )
             size_data = self.qwen_image_edit_size_input.currentData() or (368, 640)
             references = [
                 str(widget.currentData() or "").strip()
                 for widget in self.qwen_image_edit_image_inputs
             ]
             lines.extend([
-                "Target: Qwen Image Edit positive prompt",
-                "Edit model: Qwen Image 2.1",
-                f"Image size: {int(size_data[0])}x{int(size_data[1])}",
+                "Target: Image Edit positive prompt",
+                "Edit model: " + dict(QWEN_IMAGE_EDIT_ENGINE_OPTIONS).get(engine, "Qwen 2.1 Image"),
                 "Reference images: " + ", ".join(
                     f"Image {index + 1}={name or '(none)'}"
                     for index, name in enumerate(references)
                 ),
                 "Only describe an edit compatible with the selected reference images; do not invent unavailable image references.",
             ])
+            if engine == QWEN_IMAGE_EDIT_ENGINE_MINIMAX_H3_IMAGE:
+                lines.extend([
+                    "Use the MiniMax H3 Image reference-image edit guide.",
+                    "Use only <Picture N> tokens in the same order as the attached images.",
+                    "The first Picture is the image being edited; later Pictures provide additional identity, material, prop, or composition references.",
+                    "The output follows the first reference image after the workflow's internal 4 MP resize and 32-pixel grid alignment.",
+                ])
+            else:
+                lines.append(f"Image size: {int(size_data[0])}x{int(size_data[1])}")
         elif prompt_kind == "minimax_h3_t2v":
             size_data = self.minimax_h3_t2v_size_input.currentData() or (368, 640)
             lines.extend([
@@ -9689,15 +9818,33 @@ class SceneEditorWindow(QMainWindow):
                 except (TypeError, ValueError):
                     stage_number = 1
                 references = (
-                    self._gather_r2v_panjang_references()
-                    if is_r2v_panjang_batch
-                    else self._r2v_panjang_reference_manifest_for_stage(
+                    self._r2v_panjang_reference_manifest_for_stage(
                         max(0, stage_number - 1)
                     )
+                    if not is_r2v_panjang_batch
+                    else copy.deepcopy(self._gather_r2v_panjang_references())
                 )
+                if is_r2v_panjang_batch:
+                    if stage_number == 1 and references.get("initial_image"):
+                        references["images"] = list(references.get("images", [])) + [
+                            references["initial_image"]
+                        ]
+                    elif stage_number > 1:
+                        references["images"] = list(references.get("images", [])) + [
+                            "automatic initial-frame image"
+                        ]
+                        references["initial_image"] = ""
             else:
                 references = self._gather_r2v_references()
             ordered_image_lines = []
+            initial_index = (
+                len(references["images"]) - 1
+                if is_r2v_panjang
+                and references.get("initial_image")
+                and (stage_number == 1 or is_r2v_panjang_batch)
+                and references["images"]
+                else -1
+            )
             carry_index = (
                 len(references["images"]) - 1
                 if is_r2v_panjang and not is_r2v_panjang_batch and stage_number > 1 and references["images"]
@@ -9707,6 +9854,8 @@ class SceneEditorWindow(QMainWindow):
                 display_name = (
                     "automatic initial-frame image"
                     if index == carry_index
+                    else "Process 1 initial-frame image"
+                    if index == initial_index
                     else name
                 )
                 ordered_image_lines.append(f"<Picture {index + 1}>={display_name}")
@@ -9730,13 +9879,20 @@ class SceneEditorWindow(QMainWindow):
                 f"MiniMax H3 R2V size: {int(size_data[0])}x{int(size_data[1])}",
             ])
             if is_r2v_panjang_batch:
-                global_image_count = len(references["images"])
+                global_image_count = len(
+                    self._gather_r2v_panjang_references().get("images", [])
+                )
                 carry_picture_number = global_image_count + 1
                 lines.extend([
                     "R2V-Panjang BATCH: generate one connected prompt object for every process from Process 1 through the target process.",
                     f"Target process count: {stage_number}.",
                     "Return one prompt object per process in the `prompts` array, in numeric process order.",
-                    "Process 1 has no initial-frame image. Global Pictures are reference assets only; do not say that Process 1 begins exactly from any Picture.",
+                    (
+                        f"Process 1 uses <Picture {carry_picture_number}> as its optional initial-frame image. "
+                        "Processes 2 and later use the same Picture number for the automatically carried frame."
+                        if self._gather_r2v_panjang_references().get("initial_image")
+                        else "Process 1 has no initial-frame image. Global Pictures are reference assets only; do not say that Process 1 begins exactly from any Picture."
+                    ),
                     f"For every process 2 through {stage_number}, the initial-frame Picture is <Picture {carry_picture_number}>.",
                     f"For each later-process object, `subject_definitions` must begin exactly with `<Picture {carry_picture_number}> is the initial frame and visual reference for the entire video.`",
                     f"For each later-process object, `retention_analysis` must begin exactly with `<Picture {carry_picture_number}> (initial frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.`",
@@ -9747,6 +9903,18 @@ class SceneEditorWindow(QMainWindow):
                     "Keep Subject IDs stable across all returned process objects and preserve the source Picture mapping from the global references.",
                     "Do not mention another process as the source of the initial-frame Picture. Continue each opening sentence with details specific to that process.",
                     "The process-specific instructions below are authoritative for the action and requested shot count of each process.",
+                ])
+            elif is_r2v_panjang and stage_number == 1 and references.get("initial_image"):
+                initial_picture_number = len(references["images"])
+                lines.extend([
+                    "INITIAL FRAME RULE: This R2V-Panjang Process 1 begins from the optional initial-frame Picture listed below.",
+                    f"The initial-frame Picture is <Picture {initial_picture_number}>.",
+                    f"The `subject_definitions` field must begin exactly with: `<Picture {initial_picture_number}> is the initial frame and visual reference for the entire video.`",
+                    f"The `retention_analysis` field must begin exactly with: `<Picture {initial_picture_number}> (initial frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.`",
+                    f"The first shot visual must begin exactly with: `The video begins exactly from <Picture {initial_picture_number}>.`",
+                    "Define every Subject with its source Picture or Pictures and state where that Subject appears.",
+                    f"Every Subject definition must contain `from <Picture N>` and `also appears in <Picture {initial_picture_number}>` when the Subject is present in the initial frame.",
+                    "Do not use the I2VA reference object or I2VA alignment anchor.",
                 ])
             elif is_r2v_panjang and stage_number == 1:
                 lines.extend([
@@ -9932,11 +10100,16 @@ class SceneEditorWindow(QMainWindow):
             paths = [str((scene_dir / name).resolve()) for name in names]
         elif prompt_kind.startswith("minimax_h3_r2v_panjang_batch_"):
             # Batch authoring is allowed before any chained video exists. Send
-            # only the global reference images; carry frames are represented by
-            # their stage-local Picture token in the LLM context and are
-            # required later by the runtime when the video is executed.
+            # global reference images and the optional Process 1 initial image;
+            # carry frames are represented by their stage-local Picture token
+            # in the LLM context and are required later by the runtime.
             names = self.minimax_h3_r2v_panjang_image_slots.selected_names()
             paths = [str((scene_dir / name).resolve()) for name in names]
+            initial_name = str(
+                self.minimax_h3_r2v_panjang_initial_image_input.currentData() or ""
+            ).strip()
+            if initial_name:
+                paths.append(str((scene_dir / initial_name).resolve()))
         elif prompt_kind.startswith("minimax_h3_r2v_panjang_"):
             try:
                 stage_number = int(prompt_kind.rsplit("_", 1)[1])
@@ -9945,7 +10118,13 @@ class SceneEditorWindow(QMainWindow):
                 return None
             names = self.minimax_h3_r2v_panjang_image_slots.selected_names()
             paths = [str((scene_dir / name).resolve()) for name in names]
-            if stage_number > 1:
+            if stage_number == 1:
+                initial_name = str(
+                    self.minimax_h3_r2v_panjang_initial_image_input.currentData() or ""
+                ).strip()
+                if initial_name:
+                    paths.append(str((scene_dir / initial_name).resolve()))
+            else:
                 carry_frame = scene_dir / f"minimax_h3_r2v_panjang_frame_{stage_number - 1}.png"
                 if not carry_frame.is_file() or carry_frame.stat().st_size <= 0:
                     QMessageBox.warning(
@@ -9975,6 +10154,7 @@ class SceneEditorWindow(QMainWindow):
         prompt_text: str,
         prompt_key: str | None = None,
         multimodal_image_paths: list[Path] | None = None,
+        image_edit_engine: str = "",
         additional_instruction: str = "",
         batch_requests: list[dict] | None = None,
         batch_metadata: dict | None = None,
@@ -9992,6 +10172,7 @@ class SceneEditorWindow(QMainWindow):
         process_dialog.activateWindow()
         self.log_output.clear()
         prompt_text = str(prompt_text or "").strip()
+        image_edit_engine = normalize_qwen_image_edit_engine(image_edit_engine)
         additional_instruction = str(additional_instruction or "").strip()
         batch_requests = list(batch_requests or [])
         is_minimax_prompt = str(prompt_kind or "").strip().startswith("minimax_h3")
@@ -10035,10 +10216,37 @@ class SceneEditorWindow(QMainWindow):
                     "continuity described by the selected workflow."
                 )
             if prompt_kind.startswith("minimax_h3_r2v_panjang_"):
-                context_text += (
-                    "\nFor this R2V-Panjang request, the attached Picture order is global reference images "
-                    "followed by the automatic initial-frame image for this video when present."
-                )
+                if prompt_kind.startswith("minimax_h3_r2v_panjang_batch_"):
+                    initial_name = str(
+                        self._gather_r2v_panjang_references().get("initial_image", "") or ""
+                    ).strip()
+                    context_text += (
+                        "\nFor this R2V-Panjang batch request, the attached Picture order is global reference images "
+                        + (
+                            "followed by the optional Process 1 initial-frame image. That final attachment is used "
+                            "only when authoring Process 1; for later process objects, the same Picture number is "
+                            "reserved for the automatic carry frame and is not this attached image."
+                            if initial_name
+                            else "without a Process 1 initial-frame image; later process objects reserve the next Picture number for the automatic carry frame."
+                        )
+                    )
+                else:
+                    stage_number = 1
+                    try:
+                        stage_number = int(prompt_kind.rsplit("_", 1)[1])
+                    except (TypeError, ValueError):
+                        pass
+                    initial_name = str(
+                        self._gather_r2v_panjang_references().get("initial_image", "") or ""
+                    ).strip()
+                    context_text += (
+                        "\nFor this R2V-Panjang request, the attached Picture order is global reference images "
+                        + (
+                            "followed by the optional Process 1 initial-frame image."
+                            if stage_number == 1 and initial_name
+                            else "followed by the automatic initial-frame image for this video when present."
+                        )
+                    )
         if (
             prompt_kind.startswith("minimax_h3_")
             and not prompt_kind.startswith("minimax_h3_r2v_panjang_batch_")
@@ -10049,8 +10257,8 @@ class SceneEditorWindow(QMainWindow):
         prompt_label = {
             "z_image": "Gambar Awal",
             "z_extra": f"Prompt Tambahan {slot_index + 1 if slot_index is not None else 1}",
-            "qwen_image_edit": "Qwen Image Edit",
-            "qwen_image_edit_multimodal": "Qwen Image Edit multimodal",
+            "qwen_image_edit": "Image Edit",
+            "qwen_image_edit_multimodal": "Image Edit multimodal",
             "minimax_h3_t2v": "MiniMax H3 T2VA",
             "minimax_h3_s2v": "MiniMax H3 Ref2VA",
             "minimax_h3_r2v": "MiniMax H3 R2V Ref2VA",
@@ -10084,6 +10292,7 @@ class SceneEditorWindow(QMainWindow):
             "scene_dir": scene_dir,
             "prompt_key": str(prompt_key or "").strip(),
             "multimodal_image_paths": [str(path) for path in (multimodal_image_paths or [])],
+            "image_edit_engine": image_edit_engine,
             "additional_instruction": additional_instruction,
         }
         if isinstance(batch_metadata, dict):
@@ -10107,6 +10316,7 @@ class SceneEditorWindow(QMainWindow):
             project_dir=str(self.project_dir() or ""),
             multimodal_image_paths=multimodal_image_paths,
             prompt_kind=prompt_kind,
+            image_edit_engine=image_edit_engine,
             additional_instruction=additional_instruction,
             batch_requests=batch_requests,
         )
@@ -10152,38 +10362,41 @@ class SceneEditorWindow(QMainWindow):
             self.statusBar().showMessage("Jumlah prompt proses dari Gemini tidak sesuai.", 5000)
             return False
 
-        references = self._gather_r2v_panjang_references()
-        global_image_count = len(references.get("images", []))
         entries: list[dict] = []
         errors: list[str] = []
         for index, raw_entry in enumerate(raw_entries):
             stage_number = index + 1
+            manifest = self._r2v_panjang_reference_manifest_for_stage(stage_number - 1)
+            initial_frame_picture = (
+                len(manifest["images"])
+                if stage_number > 1 or manifest.get("initial_image")
+                else None
+            )
             entry = normalize_ref2va_authoring_prompt(raw_entry)
             if not isinstance(entry, dict):
                 errors.append(f"Proses {stage_number} harus berupa object.")
                 continue
             entry["mode"] = "R2VA"
             entry = ensure_ref2va_shot_text_defaults(entry)
-            if stage_number == 1:
+            if initial_frame_picture is None:
                 entry = remove_ref2va_initial_frame_instructions(entry)
             else:
                 entry = ensure_ref2va_initial_frame_instructions(
                     entry,
-                    global_image_count + 1,
+                    initial_frame_picture,
                 )
                 entry = ensure_ref2va_subject_picture_continuity(
                     entry,
-                    global_image_count + 1,
+                    initial_frame_picture,
                 )
             entries.append(entry)
             prompt_errors = validate_ref2va_prompt(entry)
             prompt_errors.extend(
                 validate_ref2va_subject_picture_mapping(
                     entry,
-                    initial_frame_picture=(global_image_count + 1 if stage_number > 1 else None),
+                    initial_frame_picture=initial_frame_picture,
                 )
             )
-            manifest = self._r2v_panjang_reference_manifest_for_stage(stage_number - 1)
             prompt_errors.extend(
                 validate_ref2va_reference_tokens(
                     entry,
@@ -10439,20 +10652,30 @@ class SceneEditorWindow(QMainWindow):
             )
             return
         if prompt_kind == "qwen_image_edit_multimodal":
+            image_edit_engine = normalize_qwen_image_edit_engine(ctx.get("image_edit_engine"))
+            image_edit_label = dict(QWEN_IMAGE_EDIT_ENGINE_OPTIONS).get(
+                image_edit_engine,
+                "Qwen 2.1 Image",
+            )
             english = str(result.get("prompt", "") or result.get("en", "")).strip()
             if not english:
-                self.append_log("[gagal] LLM tidak mengembalikan prompt Qwen Inggris yang valid.")
-                self.statusBar().showMessage("Hasil prompt Qwen tidak lengkap.", 4000)
+                self.append_log(f"[gagal] LLM tidak mengembalikan prompt {image_edit_label} yang valid.")
+                self.statusBar().showMessage("Hasil prompt Image Edit tidak lengkap.", 4000)
                 return
+            target_aspect_ratio = str(result.get("target_aspect_ratio", "") or "").strip()
             prompt_path = scene_dir / "qwen_image_edit_prompt.json"
             try:
                 payload = json.loads(prompt_path.read_text(encoding="utf-8")) if prompt_path.exists() else {}
                 payload["positive_prompt"] = english
+                if image_edit_engine == QWEN_IMAGE_EDIT_ENGINE_MINIMAX_H3_IMAGE and target_aspect_ratio:
+                    payload["target_aspect_ratio"] = target_aspect_ratio
                 write_prompt_json(prompt_path, payload)
             except Exception as exc:
-                self.append_log(f"[gagal] Gagal menyimpan prompt positif Qwen: {exc}")
+                self.append_log(f"[gagal] Gagal menyimpan prompt positif {image_edit_label}: {exc}")
                 return
             if self.current_scene_dir and self.current_scene_dir.resolve() == scene_dir.resolve():
+                if image_edit_engine == QWEN_IMAGE_EDIT_ENGINE_MINIMAX_H3_IMAGE:
+                    self.qwen_image_edit_target_aspect_ratio = target_aspect_ratio
                 self._set_prompt_widget_text(
                     "qwen_image_edit",
                     None,
@@ -10461,8 +10684,8 @@ class SceneEditorWindow(QMainWindow):
                 )
                 self.save_current_scene(silent=True, reload_list=False)
                 self.refresh_scene_status()
-            self.append_log("[Qwen] Prompt positif multimodal Inggris disimpan.")
-            self.statusBar().showMessage("Prompt Qwen berhasil dibuat.", 4000)
+            self.append_log(f"[{image_edit_label}] Prompt positif multimodal disimpan.")
+            self.statusBar().showMessage(f"Prompt {image_edit_label} berhasil dibuat.", 4000)
             return
         if prompt_kind in {"minimax_h3_t2v", "minimax_h3_i2v_standalone", "minimax_h3_s2v", "minimax_h3_r2v"} or prompt_kind.startswith("minimax_h3_i2v_panjang_") or prompt_kind.startswith("minimax_h3_r2v_panjang_"):
             structured = result.get("structured")
@@ -10480,10 +10703,13 @@ class SceneEditorWindow(QMainWindow):
                                 stage_number = int(prompt_kind.rsplit("_", 1)[1])
                             except (TypeError, ValueError):
                                 stage_number = 1
-                            if stage_number > 1:
-                                manifest = self._r2v_panjang_reference_manifest_for_stage(
-                                    max(0, stage_number - 1)
-                                )
+                            manifest = self._r2v_panjang_reference_manifest_for_stage(
+                                max(0, stage_number - 1)
+                            )
+                            has_initial_frame = bool(
+                                stage_number > 1 or manifest.get("initial_image")
+                            )
+                            if has_initial_frame:
                                 entry = ensure_ref2va_initial_frame_instructions(
                                     entry,
                                     len(manifest["images"]),
@@ -10505,7 +10731,9 @@ class SceneEditorWindow(QMainWindow):
                         validate_ref2va_subject_picture_mapping(
                             entry,
                             initial_frame_picture=(
-                                len(manifest["images"]) if stage_number > 1 else None
+                                len(manifest["images"])
+                                if stage_number > 1 or manifest.get("initial_image")
+                                else None
                             ),
                         )
                     )
@@ -10684,7 +10912,7 @@ class SceneEditorWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Data Tidak Valid",
-                "Pilih minimal satu gambar untuk Buat Prompt Qwen.",
+                "Pilih minimal satu gambar untuk Buat Prompt Image Edit.",
             )
             return
         self._start_prompt_generation(
@@ -10693,6 +10921,7 @@ class SceneEditorWindow(QMainWindow):
             self.qwen_image_edit_prompt_instruction_input.toPlainText().strip(),
             prompt_key="positive_prompt",
             multimodal_image_paths=selected_paths,
+            image_edit_engine=str(self.qwen_image_edit_engine_input.currentData() or QWEN_IMAGE_EDIT_DEFAULT_ENGINE),
         )
 
     def generate_minimax_h3_prompt_from_ui(self, stage: str):
@@ -11110,7 +11339,7 @@ class SceneEditorWindow(QMainWindow):
             return
         prompt = self.qwen_image_edit_positive_input.toPlainText().strip()
         if not prompt:
-            QMessageBox.warning(self, "Data Tidak Valid", "Positive Prompt Qwen Image Edit wajib diisi.")
+            QMessageBox.warning(self, "Data Tidak Valid", "Positive Prompt Image Edit wajib diisi.")
             return
         # Qwen Image Edit is an independent asset workflow. Persist only its
         # own configuration so an incomplete unrelated scene (for example an
@@ -11121,8 +11350,8 @@ class SceneEditorWindow(QMainWindow):
                 self.gather_qwen_image_edit_prompt(),
             )
         except Exception as exc:
-            self.append_log(f"[gagal] Gagal menyimpan konfigurasi Qwen Image Edit: {exc}")
-            self.statusBar().showMessage("Konfigurasi Qwen Image Edit gagal disimpan.", 5000)
+            self.append_log(f"[gagal] Gagal menyimpan konfigurasi Image Edit: {exc}")
+            self.statusBar().showMessage("Konfigurasi Image Edit gagal disimpan.", 5000)
             QMessageBox.warning(self, "Gagal Menyimpan", str(exc))
             return
         self.start_process(
@@ -11134,7 +11363,7 @@ class SceneEditorWindow(QMainWindow):
                 "--prompt-file", "qwen_image_edit_prompt.json",
                 "--number-of-edits", str(self.qwen_image_edit_number_of_edits_input.value()),
             ],
-            f"Qwen Image Edit untuk {self.current_scene_dir.name}",
+            f"Image Edit untuk {self.current_scene_dir.name}",
             watch_dirs=[self.current_scene_dir],
         )
 

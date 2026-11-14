@@ -47,6 +47,20 @@ MODEL_SPECS = {
         "save_path": "vae/MINIMAX-H3",
         "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors",
     },
+    "minimax_h3_image_diffusion": {
+        "label": "MiniMax H3 Image Diffusion",
+        "runtime_name": "MINIMAX-H3-IMAGE/minimax_h3_image_pruned_int8_convrot.safetensors",
+        "manager_type": "unet",
+        "save_path": "diffusion_models/MINIMAX-H3-IMAGE",
+        "url": "https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors?download=true",
+    },
+    "minimax_h3_image_vae": {
+        "label": "MiniMax H3 Image VAE",
+        "runtime_name": "MINIMAX-H3-IMAGE/minimax_h3_image_vae_fp16.safetensors",
+        "manager_type": "vae",
+        "save_path": "vae/MINIMAX-H3-IMAGE",
+        "url": "https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/vae/minimax_h3_image_vae_fp16.safetensors?download=true",
+    },
     "minimax_fast_t2v_i2v": {
         "label": "FastH3 T2V/I2V",
         "runtime_name": "MINIMAX-H3/fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors",
@@ -168,6 +182,16 @@ MODEL_GROUPS = [
         "label": "MiniMax H3 Mode Khusus",
         "description": "Checkpoint 10Eros-Max beta6 8-step tanpa checkpoint FL2VA dan Ref2VA normal.",
         "model_ids": _H3_SPECIAL_SHARED + ["minimax_special"],
+    },
+    {
+        "id": "minimax_h3_image",
+        "label": "MiniMax H3 Image",
+        "description": "MiniMax H3 Image untuk image editing berbasis referensi.",
+        "model_ids": [
+            "minimax_h3_image_diffusion",
+            "minimax_h3_text_encoder",
+            "minimax_h3_image_vae",
+        ],
     },
     {
         "id": "flux2",

@@ -35,7 +35,7 @@ File utama:
 - `scene_meta.json`
 - `z_image_prompt.json`
 - `z_image_extra_prompts.json`
-- `qwen_image_edit_prompt.json` (untuk tab `Qwen Image Edit`)
+- `qwen_image_edit_prompt.json` (untuk tab `Image Edit`)
 - `minimax_h3_t2v_prompt.json` (untuk scene `minimax-h3_t2v`)
 - `minimax_h3_i2v_prompt.json` (untuk scene `minimax-h3_i2v`)
 - `minimax_h3_i2v_panjang_prompt.json` (untuk scene `minimax-h3_i2v-panjang`)
@@ -53,20 +53,20 @@ Catatan format prompt:
 - semua slot prompt menyimpan nilai langsung berbahasa Inggris; tidak ada wrapper bahasa pada JSON;
 - prompt terstruktur MiniMax T2V, I2V, dan R2V memakai `shots[]` dengan bentuk item yang sama;
 - R2V menyimpan `style_opening` dan `shots[]`; aplikasi mengompilasinya menjadi `detailed_description` saat runtime;
-- R2V-Panjang menyimpan empat prompt pada `prompts[]`; maksimal empat gambar global dikirim lebih dulu, lalu frame terakhir proses sebelumnya ditambahkan otomatis pada proses 2–4;
+- R2V-Panjang menyimpan empat prompt pada `prompts[]`; maksimal empat gambar global dikirim lebih dulu, lalu frame awal Proses 1 (opsional) atau frame terakhir proses sebelumnya ditambahkan sebagai image terakhir;
 - editor prompt interaktif MiniMax berada langsung di dalam tab scene dan tidak menampilkan JSON mentah;
 - tombol `Buat Prompt` memakai Gemini untuk menghasilkan prompt Inggris; runtime hanya memvalidasi dan menserialisasi, tanpa translasi;
 - model Gemini untuk `Buat Prompt` disimpan pada `project_settings.json.prompt_generation.model`;
 - tombol `Buat Prompt` tidak melakukan `Save Scene` terlebih dahulu; input dan konteks diambil dari nilai yang sedang tampil di UI;
 - `lora_trigger_words` disimpan sebagai text biasa dan hanya disisipkan ke awal prompt positif saat runtime, bukan ditulis permanen ke field prompt.
 
-### Qwen Image Edit
+### Image Edit
 
-Tab `Qwen Image Edit` muncul pada scene yang menyediakan fitur edit gambar. Semua pengaturan Qwen disimpan per scene, sehingga setiap scene dapat memiliki gambar referensi, ukuran, seed, dan prompt yang berbeda.
+Tab `Image Edit` muncul pada scene yang menyediakan fitur edit gambar. UI tab tetap satu, tetapi field `Model` memilih `Minimax H3 Image` atau `Qwen 2.1 Image`. Semua pengaturan Image Edit disimpan per scene sehingga setiap scene dapat memiliki gambar referensi, engine, ukuran, seed, dan prompt yang berbeda. Scene lama tanpa field `engine` memakai `qwen_2_1`.
 
 #### Edit Gambar
 
-Qwen menggunakan satu panel `Edit Gambar`. Panel ini menyediakan:
+Image Edit menggunakan satu panel `Edit Gambar`. Untuk `Qwen 2.1 Image`, panel ini menyediakan:
 
 - pilihan ukuran `368x640`, `480x848`, `720x1280`, `640x368`, `848x480`, dan `1280x720`
 - `Random Seed` untuk menghasilkan variasi setiap kali proses dijalankan
@@ -76,11 +76,15 @@ Qwen menggunakan satu panel `Edit Gambar`. Panel ini menyediakan:
 - `Negative Prompt` untuk menjelaskan hal-hal yang tidak diinginkan
 - `Jumlah Edit` untuk menentukan jumlah gambar yang dibuat
 
+Untuk `Minimax H3 Image`, panel yang sama menyembunyikan `Negative Prompt`, pilihan ukuran, `Random Seed`, dan seed statik. UI menampilkan penjelasan bahwa ukuran output mengikuti gambar pertama setelah gambar tersebut di-resize ke sekitar `4 MP` dan dimensinya disesuaikan ke multiple `32`.
+
 Sepuluh gambar referensi dapat diisi secara bebas dan tidak harus lengkap. Pilihan `(Tanpa gambar)` dapat digunakan pada slot yang tidak diperlukan. Contohnya, pengguna dapat mengisi hanya `Image 1` dan `Image 3` tanpa harus mengisi slot lainnya.
 
 Gambar yang dipilih akan dikirim sesuai urutan slot yang terisi. Jika hanya `Image 1` dan `Image 3` yang dipilih, keduanya menjadi referensi pertama dan kedua pada workflow; slot kosong tidak dikirim sebagai gambar palsu.
 
-`Jumlah Edit` bernilai `1` secara default dan harus lebih besar dari `0`. Jika diatur ke angka yang lebih besar, aplikasi mengirim workflow baru untuk setiap edit dan mengunduh hasil sebanyak angka tersebut. Saat `Random Seed` aktif, setiap workflow memakai seed acak yang berbeda agar hasilnya menjadi variasi; saat dinonaktifkan, semua edit menggunakan seed statik yang dipilih.
+Pada engine `Minimax H3 Image`, gambar pertama dikirim melalui alur `LoadImage → ResizeImageMaskNode scale total pixels=4 → ResizeImageMaskNode scale to multiple=32 → MiniMaxH3ImageConditioning.images.image_1`. Gambar tambahan 2–10 dibuat sebagai node `LoadImage` terpisah dan langsung dihubungkan ke `images.image_2` sampai `images.image_10` pada node conditioning. Gambar pertama menentukan width/height output; referensi tambahan tidak menentukan ukuran output.
+
+`Jumlah Edit` bernilai `1` secara default dan harus lebih besar dari `0`. Jika diatur ke angka yang lebih besar, aplikasi mengirim workflow baru untuk setiap edit dan mengunduh hasil sebanyak angka tersebut. Pada `Qwen 2.1 Image`, `Random Seed` dapat memakai seed acak atau seed statik; pada `Minimax H3 Image`, seed dibuat internal oleh runtime.
 
 #### Buat Prompt
 
@@ -88,7 +92,7 @@ Bagian `Buat Prompt` memiliki sepuluh pilihan gambar tambahan dan satu kolom ins
 
 Gambar untuk `Buat Prompt` merupakan pilihan yang terpisah dari gambar untuk `Edit Gambar`. Gambar yang dikirim ke model bahasa tidak harus dipilih kembali sebagai gambar workflow. Dengan demikian, pengguna dapat memakai satu set gambar sebagai bahan analisis prompt, lalu memakai set gambar lain untuk proses edit akhir.
 
-Model memberi urutan pada gambar berdasarkan urutan gambar yang dipilih. Misalnya, apabila pengguna memilih gambar pada slot 1 dan slot 3, model akan menerima keduanya sebagai `<image1>` dan `<image2>`. Urutan ini membantu pengguna memberi instruksi seperti memindahkan subjek dari satu gambar ke gambar lain atau mempertahankan bagian tertentu dari referensi tertentu.
+Model memberi urutan pada gambar berdasarkan urutan gambar yang dipilih. Untuk `Qwen 2.1 Image`, misalnya slot 1 dan slot 3 menjadi `<image1>` dan `<image2>`; untuk `Minimax H3 Image`, token yang sama menjadi `<Picture 1>` dan `<Picture 2>`. Urutan ini membantu pengguna memberi instruksi seperti memindahkan subjek dari satu gambar ke gambar lain atau mempertahankan bagian tertentu dari referensi tertentu.
 
 Instruksi `Buat Prompt` dapat menjelaskan:
 
@@ -98,9 +102,9 @@ Instruksi `Buat Prompt` dapat menjelaskan:
 - perubahan pose, pakaian, warna, latar, komposisi, atau gaya
 - hubungan antara beberapa gambar referensi
 
-`Buat Prompt` menggunakan input gambar multimodal melalui Gemini. Model menerima instruksi Qwen Image Edit 2.1 sebelum instruksi tambahan dari UI, sehingga prompt yang dihasilkan tetap mengikuti aturan edit gambar Qwen.
+`Buat Prompt` menggunakan input gambar multimodal melalui Gemini. Pada engine `Qwen 2.1 Image`, model menerima instruksi Qwen Image Edit 2.1. Pada engine `Minimax H3 Image`, Gemini menerima `system_prompt` dan `task_prompt` dari blok bertanda di `minimax_h3_image_edit/edit-en.txt`; workflow JSON hanya dipakai untuk eksekusi ComfyUI dan bukan sumber payload prompt Gemini.
 
-LLM diminta mengembalikan JSON langsung dengan key `prompt` untuk Qwen Image Edit. Hasilnya disimpan sebagai string Inggris pada `positive_prompt`; `negative_prompt` tidak diubah oleh tombol `Buat Prompt`.
+Untuk `Qwen 2.1 Image`, LLM mengembalikan JSON dengan key `prompt`. Untuk `Minimax H3 Image`, LLM mengembalikan `expanded_caption` dan `target_aspect_ratio`; `expanded_caption` disimpan ke `positive_prompt`, sedangkan rasio disimpan sebagai metadata. `negative_prompt` tidak diubah oleh tombol `Buat Prompt`. Prompt MiniMax memakai token referensi `<Picture 1>`, `<Picture 2>`, dan seterusnya sesuai urutan gambar yang dikirim ke payload Gemini.
 
 Aturan khusus MiniMax H3 untuk tombol `Buat Prompt`:
 
@@ -203,7 +207,8 @@ Kebutuhan prompt per `scene_type`:
   - membutuhkan `scene_meta.json` dan `minimax_h3_r2v_panjang_prompt.json`
   - durasi scene berupa angka desimal `0.0` sampai `15.0` dengan maksimal 4 angka desimal; durasi `0.0` menghasilkan output minimum 5 frame per proses
   - memakai empat proses R2V berantai; `continuations` bernilai integer `0` sampai `3`
-  - reference image, audio, dan video dipilih sekali secara global untuk semua proses; maksimal empat gambar global dipakai agar satu slot Picture tersedia untuk frame carry
+  - reference image, audio, dan video dipilih sekali secara global untuk semua proses; maksimal empat gambar global dipakai agar satu slot Picture tersedia untuk image awal/carry
+  - Proses 1 dapat memilih satu `initial_image` opsional; image ini ditambahkan setelah seluruh Picture global sebagai frame pertama
   - proses 2–4 otomatis menambahkan frame terakhir proses sebelumnya setelah seluruh Picture global; frame ini tidak dipilih manual dan tidak ditulis ke `references.images`
   - setiap proses memakai prompt Ref2VA berbeda dari array `prompts` yang berisi tepat 4 prompt
   - `run_start_stage` dapat menjalankan ulang dari proses tertentu jika segment dan frame proses sebelumnya sudah tersedia
@@ -364,6 +369,7 @@ Tombol paling kiri `Konfigurasi Umum` memakai ikon komputer/pengaturan dan selal
 
 - `MiniMax H3`
 - `MiniMax H3 Mode Cepat`
+- `MiniMax H3 Image`
 - `Flux 2`
 - `Z Image Turbo`
 - `Qwen Image Edit`
@@ -521,7 +527,7 @@ Fungsi utama:
 - edit metadata scene
 - edit prompt image
 - tab `Prompt Tambahan` untuk 3 prompt image tambahan berbasis aturan `Gambar Awal`
-- tab `Qwen Image Edit` untuk edit gambar berbasis referensi multimodal
+- tab `Image Edit` untuk edit gambar berbasis referensi multimodal dengan pilihan engine `Minimax H3 Image` dan `Qwen 2.1 Image`
 - untuk voice, tersedia field:
 - `Pilihan Suara Scene` (per scene): 3 karakter suara
 - group `Audio` berisi proses generate voice/sound untuk scene atau semua scene
@@ -587,13 +593,13 @@ Perilaku UI:
 - scene type `minimax-h3_i2v` menampilkan tab berurutan:
   - `Meta`
   - `Gambar Awal`
-  - `Qwen Image Edit`
+  - `Image Edit`
   - `MINIMAX-H3_I2V`
   - `Aset`
 - scene type `minimax-h3_i2v-panjang` menampilkan tab berurutan:
   - `Meta`
   - `Gambar Awal`
-  - `Qwen Image Edit`
+  - `Image Edit`
   - `MINIMAX-H3_I2V-PANJANG`
   - `Aset`
 - tab `MINIMAX-H3_I2V-PANJANG` menyediakan:
@@ -605,10 +611,10 @@ Perilaku UI:
 - scene type `minimax-h3_r2v-panjang` menampilkan tab berurutan:
   - `Meta`
   - `Gambar Awal`
-  - `Qwen Image Edit`
+  - `Image Edit`
   - `MINIMAX-H3_R2V-PANJANG`
   - `Aset`
-- tab `MINIMAX-H3_R2V-PANJANG` menyediakan empat tab proses dengan layout seperti I2V-Panjang. Reference global dipilih pada Proses 1; proses berikutnya otomatis menampilkan frame carry sebagai Picture tambahan.
+- tab `MINIMAX-H3_R2V-PANJANG` menyediakan empat tab proses dengan layout seperti I2V-Panjang. Reference global dan frame awal Proses 1 opsional dipilih pada Proses 1; proses berikutnya otomatis menampilkan frame carry sebagai Picture tambahan.
 - scene type `minimax-h3_s2v` menampilkan tab berurutan:
   - `Meta`
   - `Gambar Awal`
@@ -1024,7 +1030,7 @@ Prompt MiniMax H3 mengikuti:
 Scene type: `minimax-h3_i2v`
 
 - durasi berupa angka `0.0` sampai `15.0` dengan maksimal 4 angka desimal; durasi `0.0` menghasilkan output minimum 5 frame
-- tab berurutan: `Meta`, `Gambar Awal`, `Qwen Image Edit`, `MINIMAX-H3_I2V`, `Aset`
+- tab berurutan: `Meta`, `Gambar Awal`, `Image Edit`, `MINIMAX-H3_I2V`, `Aset`
 - gambar terbaru di root scene menjadi `Picture 1` dan input node `LoadImage`
 - hanya workflow MiniMax H3 I2VA yang dijalankan; tidak ada stage T2V
 - setelah output ComfyUI diunduh, seluruh frame hasil generasi MiniMax dipertahankan;
@@ -1105,7 +1111,8 @@ Scene type: `minimax-h3_r2v-panjang`
 
 - memakai empat proses R2V berantai dengan template `api_template/minimax_h3_r2v_api.json` yang sama pada setiap proses
 - file prompt `minimax_h3_r2v_panjang_prompt.json` memiliki `prompts[4]`, `prompt_instructions[4]`, `continuations`, `run_start_stage`, dan reference global
-- maksimal empat Picture global dikirim dalam urutan `references.images`; proses 2–4 menambahkan frame terakhir proses sebelumnya sebagai Picture setelah semua Picture global
+- maksimal empat Picture global dikirim dalam urutan `references.images`; `references.initial_image` opsional dipakai hanya Proses 1 sebagai Picture setelah semua Picture global
+- proses 2–4 menambahkan frame terakhir proses sebelumnya sebagai Picture setelah semua Picture global
 - frame carry diekstrak dari segment proses sebelumnya, tidak dipilih manual, dan tidak ditulis ke `references.images`
 - maksimal tiga Audio global dan satu Video global dipakai pada seluruh proses
 - `run_start_stage` hanya boleh melewati proses yang segment dan frame carry-nya sudah tersedia
@@ -1424,7 +1431,7 @@ Dokumentasi ini menjadi ringkasan aturan terbaru untuk seluruh scene MiniMax H3.
 
 - File prompt scene yang didukung mencakup `minimax_h3_t2v_prompt.json`, `minimax_h3_i2v_prompt.json`, `minimax_h3_i2v_panjang_prompt.json`, `minimax_h3_s2v_prompt.json`, `minimax_h3_r2v_prompt.json`, dan `minimax_h3_r2v_panjang_prompt.json`.
 - Referensi ringkas yang dikirim ke LLM untuk tombol `Buat Prompt` disesuaikan dengan scene: `SCENE-GENERAL.md` serta dokumen scene dan prompt khususnya. Aturan dialog bersama berasal dari `MINIMAX-H3-DIALOG.md`.
-- S2V hanya boleh memakai reference aktif `<Picture 1>` dan `<Audio 1>`. R2V memakai manifest reference aktif secara dinamis, dengan batas maksimal 5 Picture, 3 Audio, dan 1 Video. R2V-Panjang memakai maksimal 4 Picture global lalu menambahkan frame carry sebagai Picture berikutnya pada proses lanjutan. Token reference yang tidak aktif tidak boleh dikembalikan oleh LLM.
+- S2V hanya boleh memakai reference aktif `<Picture 1>` dan `<Audio 1>`. R2V memakai manifest reference aktif secara dinamis, dengan batas maksimal 5 Picture, 3 Audio, dan 1 Video. R2V-Panjang memakai maksimal 4 Picture global lalu menambahkan `initial_image` Proses 1 atau frame carry sebagai Picture berikutnya sesuai proses. Token reference yang tidak aktif tidak boleh dikembalikan oleh LLM.
 - Referensi `SCENE-GENERAL.md` mengikuti request `Buat Prompt`: `Context` berisi judul, tipe, target, mode, dan parameter scene yang tersedia; `Prompt`, `ADDITIONAL INSTRUCTION FROM UI`, serta manifest/gambar referensi disertakan jika tersedia. LLM menyusun prompt Inggris untuk target aktif sesuai schema respons.
 - Validasi saat save dan runtime berfokus pada object prompt langsung yang valid; tidak ada translasi runtime.
 

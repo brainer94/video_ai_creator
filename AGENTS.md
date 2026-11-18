@@ -566,6 +566,7 @@ Perilaku UI:
 - `Jalankan Adegan` hanya menjalankan scene aktif
 - tombol batch sekarang bernama `Jalankan Beberapa Adegan`; tombol ini membuka daftar scene dengan checkbox sehingga pengguna dapat memilih scene yang ingin dijalankan
 - scene terpilih dijalankan mengikuti urutan daftar scene; scene yang tidak dicentang tidak ikut diproses
+- dialog `Jalankan Beberapa Adegan` menyediakan dropdown `Jumlah eksekusi` dari `1` sampai `5`; setiap putaran menjalankan seluruh scene terpilih sesuai urutannya
 - scene bermasalah ditandai merah dan tooltip-nya menampilkan alasan masalah; jika scene bermasalah tetap dipilih, proses batch diblok sampai masalah diperbaiki atau scene tersebut tidak dipilih
 - daftar LoRa dimuat sekali saat UI dijalankan, lalu dipakai dari memory cache untuk semua dropdown LoRa
 - saat startup UI atau URL ComfyUI diganti, `Log Proses` terbuka otomatis dan menampilkan langkah pemeriksaan serta detail error; daftar LoRa tidak dimuat jika koneksi gagal

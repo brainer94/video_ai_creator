@@ -93,7 +93,7 @@ Nama beberapa tombol ditampilkan melalui tooltip karena tombolnya menggunakan ik
 
 ### Batch
 
-- `Jalankan Beberapa Adegan` — memilih beberapa adegan, kemudian menjalankannya secara berurutan.
+- `Jalankan Beberapa Adegan` — memilih beberapa adegan, menentukan jumlah eksekusi dari `1` sampai `5`, kemudian menjalankannya secara berurutan pada setiap putaran.
 - `Buat Voice untuk Beberapa Adegan` — memilih beberapa adegan, kemudian membuat voice hanya untuk adegan yang dipilih.
 
 ### Backup
@@ -121,7 +121,7 @@ Nama beberapa tombol ditampilkan melalui tooltip karena tombolnya menggunakan ik
 9. Tekan `Jalankan Adegan` untuk membuat video.
 10. Pantau hasil dan pesan proses melalui `Log Proses`. Aset hasil dapat dilihat pada tab `Aset`.
 
-Untuk menjalankan beberapa adegan sekaligus, tekan `Jalankan Beberapa Adegan` pada grup `Batch`, centang adegan yang diinginkan, lalu konfirmasi.
+Untuk menjalankan beberapa adegan sekaligus, tekan `Jalankan Beberapa Adegan` pada grup `Batch`, centang adegan yang diinginkan, pilih `Jumlah eksekusi` dari `1` sampai `5`, lalu konfirmasi.
 
 Untuk membuat voice pada beberapa adegan sekaligus, tekan tombol voice pada grup `Batch`, centang adegan yang diinginkan, lalu konfirmasi.
 

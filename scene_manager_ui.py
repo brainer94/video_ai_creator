@@ -1804,6 +1804,7 @@ class SceneSelectionDialog(QDialog):
         parent=None,
         title="Jalankan Beberapa Adegan",
         instruction_text="Pilih adegan yang ingin dijalankan. Urutan mengikuti daftar adegan di project.",
+        show_loop_selector=False,
     ):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -1818,6 +1819,20 @@ class SceneSelectionDialog(QDialog):
         )
         instruction.setWordWrap(True)
         layout.addWidget(instruction)
+
+        self.loop_count_input = None
+        if show_loop_selector:
+            loop_row = QHBoxLayout()
+            loop_row.addWidget(QLabel("Jumlah eksekusi:", self))
+            self.loop_count_input = QComboBox(self)
+            self.loop_count_input.addItems([str(value) for value in range(1, 6)])
+            self.loop_count_input.setCurrentIndex(0)
+            self.loop_count_input.setToolTip(
+                "Setiap putaran menjalankan semua adegan terpilih sesuai urutannya."
+            )
+            loop_row.addWidget(self.loop_count_input)
+            loop_row.addStretch(1)
+            layout.addLayout(loop_row)
 
         self.scene_list = QListWidget(self)
         self.scene_list.setSelectionMode(QAbstractItemView.NoSelection)
@@ -1894,6 +1909,14 @@ class SceneSelectionDialog(QDialog):
 
     def selected_scene_dirs(self):
         return list(self._selected_scene_dirs)
+
+    def loop_count(self):
+        if self.loop_count_input is None:
+            return 1
+        try:
+            return max(1, min(5, int(self.loop_count_input.currentText())))
+        except (TypeError, ValueError):
+            return 1
 
 
 class ProcessDialog(QDialog):
@@ -11245,16 +11268,18 @@ class SceneEditorWindow(QMainWindow):
             scene_title = meta.get("scene_title", "") if isinstance(meta, dict) else ""
             scene_entries.append((scene_dir, scene_title, self.get_scene_issues(scene_dir)))
 
-        dialog = SceneSelectionDialog(scene_entries, self)
+        dialog = SceneSelectionDialog(scene_entries, self, show_loop_selector=True)
         if dialog.exec() != QDialog.Accepted:
             return
         selected_scene_dirs = dialog.selected_scene_dirs()
         if not selected_scene_dirs:
             return
+        loop_count = dialog.loop_count()
         selected_names = ", ".join(scene_dir.name for scene_dir in selected_scene_dirs)
         if not self.confirm_run_action(
             "Jalankan Beberapa Adegan",
-            f"Jalankan {len(selected_scene_dirs)} adegan berikut secara berurutan?\n\n{selected_names}",
+            f"Jalankan {len(selected_scene_dirs)} adegan berikut sebanyak {loop_count} kali?\n\n"
+            f"{selected_names}",
         ):
             return
         if not self.ensure_selected_scenes_are_runnable(selected_scene_dirs):
@@ -11265,13 +11290,15 @@ class SceneEditorWindow(QMainWindow):
             self.comfyui_server_address(),
             "--project",
             self.current_project_name,
+            "--loop",
+            str(loop_count),
         ]
         for scene_dir in selected_scene_dirs:
             args.extend(["--scene", scene_dir.name])
         self.start_process(
             MAIN_SCRIPT,
             args,
-            f"Menjalankan {len(selected_scene_dirs)} adegan",
+            f"Menjalankan {len(selected_scene_dirs)} adegan ({loop_count}x)",
             watch_dirs=selected_scene_dirs,
         )
 

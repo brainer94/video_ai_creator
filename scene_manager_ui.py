@@ -527,6 +527,10 @@ MINIMAX_H3_I2V_DURATION_OPTIONS = [0, 1, 5, 10, 15]
 MINIMAX_H3_DURATION_MIN = 0.0
 MINIMAX_H3_DURATION_DECIMALS = 4
 MINIMAX_H3_DEFAULT_FPS = 24
+SCENE_LIST_MIN_WIDTH = 220
+UI_LOG_MAX_BLOCKS = 2000
+
+
 def duration_options_for_scene_type(scene_type: str) -> list[int]:
     scene_type = str(scene_type or "").strip()
     if scene_type in FREE_INTEGER_DURATION_SCENE_TYPES:
@@ -2013,6 +2017,15 @@ class UiLogHandler(logging.Handler):
 
     def emit(self, record):
         try:
+            # Full LLM audit payloads are intentionally kept in the rotating
+            # file log, but sending them to the live QText widget can enqueue
+            # tens of thousands of characters per request and eventually
+            # starve the GUI event loop.
+            if (
+                record.name == "prompt_localization"
+                and str(record.getMessage()).startswith("[LLM AUDIT]")
+            ):
+                return
             message = self.format(record)
         except Exception:
             message = record.getMessage()
@@ -4036,6 +4049,8 @@ class SceneEditorWindow(QMainWindow):
         self.main_splitter = None
         self.scene_list_panel = None
         self.preview_panel = None
+        self._scene_list_width = SCENE_LIST_MIN_WIDTH
+        self._updating_main_splitter = False
         self._refreshing_scene_status = False
         self.model_download_dialog = None
         self.startup_model_audit_dialog = None
@@ -4573,6 +4588,12 @@ class SceneEditorWindow(QMainWindow):
         self.asset_info_label = QLabel("Belum ada aset yang dipilih.")
         self.log_output = QPlainTextEdit()
         self.log_output.setReadOnly(True)
+        self.log_output.setMaximumBlockCount(UI_LOG_MAX_BLOCKS)
+        self._pending_ui_log_lines = []
+        self._ui_log_flush_timer = QTimer(self)
+        self._ui_log_flush_timer.setSingleShot(True)
+        self._ui_log_flush_timer.setInterval(50)
+        self._ui_log_flush_timer.timeout.connect(self._flush_pending_ui_logs)
         self.process_dialog = None
         self._lora_options_initialized = False
         self._lora_options_server = ""
@@ -4623,6 +4644,10 @@ class SceneEditorWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._closing = True
+        if hasattr(self, "_ui_log_flush_timer"):
+            self._ui_log_flush_timer.stop()
+        if hasattr(self, "_pending_ui_log_lines"):
+            self._pending_ui_log_lines.clear()
         if self._background_task is not None:
             self._background_task.cancel()
         if self.startup_model_audit_dialog is not None:
@@ -4823,11 +4848,12 @@ class SceneEditorWindow(QMainWindow):
         root_layout = QHBoxLayout(root)
         root_layout.setContentsMargins(0, 0, 0, 0)
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(True)
+        splitter.setChildrenCollapsible(False)
         root_layout.addWidget(splitter)
 
         left = QWidget()
         self.scene_list_panel = left
+        left.setMinimumWidth(SCENE_LIST_MIN_WIDTH)
         left_layout = QVBoxLayout(left)
         left_layout.addWidget(QLabel("Daftar Adegan"))
         left_layout.addWidget(self.scene_list)
@@ -4857,6 +4883,10 @@ class SceneEditorWindow(QMainWindow):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 4)
         splitter.setStretchFactor(2, 3)
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        splitter.setCollapsible(2, True)
+        splitter.splitterMoved.connect(self._on_main_splitter_moved)
         self.main_splitter = splitter
         self.preview_panel = right
         QTimer.singleShot(0, self._update_preview_panel_visibility)
@@ -4871,6 +4901,13 @@ class SceneEditorWindow(QMainWindow):
             document_key = HELP_TAB_DOCUMENT_KEYS.get(tab_label, document_key)
         return self.show_help_document(document_key)
 
+    def _on_main_splitter_moved(self, _position, handle_index):
+        if self._updating_main_splitter or handle_index != 1 or self.main_splitter is None:
+            return
+        sizes = self.main_splitter.sizes()
+        if sizes and sizes[0] > 0:
+            self._scene_list_width = max(SCENE_LIST_MIN_WIDTH, int(sizes[0]))
+
     def _on_editor_tab_changed(self, _index=-1):
         self._update_preview_panel_visibility()
 
@@ -4878,36 +4915,42 @@ class SceneEditorWindow(QMainWindow):
         """Show the media preview only while the Aset tab is active."""
         if self.main_splitter is None or self.preview_panel is None:
             return
+        # The splitter handle itself is normalized by one pixel differently
+        # when the third widget is visible or hidden. Keep one extra pixel of
+        # working room above the hard minimum so both states converge to the
+        # same actual scene-list width.
+        left_width = max(SCENE_LIST_MIN_WIDTH + 1, int(self._scene_list_width))
         show_preview = (
             self.editor_tabs is not None
             and self.assets_tab is not None
             and self.editor_tabs.currentWidget() is self.assets_tab
         )
-        if show_preview:
-            self.preview_panel.setVisible(True)
-            sizes = self.main_splitter.sizes()
-            total_width = max(
-                self.main_splitter.width(),
-                sum(size for size in sizes if size > 0),
-                1,
-            )
-            left_width = sizes[0] if sizes and sizes[0] > 0 else 220
-            available_width = max(total_width - left_width, 2)
-            preview_width = max(260, available_width // 2)
-            preview_width = min(preview_width, max(1, available_width - 260))
-            center_width = max(1, available_width - preview_width)
-            self.main_splitter.setSizes([left_width, center_width, preview_width])
-            return
-
         sizes = self.main_splitter.sizes()
         total_width = max(
             self.main_splitter.width(),
             sum(size for size in sizes if size > 0),
             1,
         )
-        left_width = sizes[0] if sizes and sizes[0] > 0 else 220
-        self.preview_panel.setVisible(False)
-        self.main_splitter.setSizes([left_width, max(1, total_width - left_width), 0])
+        handle_position = left_width + 1 if show_preview else left_width - 1
+        self._updating_main_splitter = True
+        try:
+            if show_preview:
+                self.preview_panel.setVisible(True)
+                available_width = max(total_width - left_width, 2)
+                preview_width = max(260, available_width // 2)
+                preview_width = min(preview_width, max(1, available_width - 260))
+                center_width = max(1, available_width - preview_width)
+                self.main_splitter.setSizes([handle_position, center_width, preview_width])
+            else:
+                self.preview_panel.setVisible(False)
+                self.main_splitter.setSizes([handle_position, max(1, total_width - left_width), 0])
+            # QSplitter normalizes the requested sizes differently when the
+            # preview widget is visible versus hidden. Offset the requested
+            # handle position by one pixel in each state so the scene list
+            # keeps the same actual width after Qt processes the layout.
+            self.main_splitter.moveSplitter(handle_position, 1)
+        finally:
+            self._updating_main_splitter = False
 
     def build_editor_tabs(self):
         tabs = QTabWidget()
@@ -6735,7 +6778,23 @@ class SceneEditorWindow(QMainWindow):
 
     @Slot(str)
     def append_log(self, text: str):
-        self.log_output.appendPlainText(text.rstrip())
+        if getattr(self, "_closing", False):
+            return
+        self._pending_ui_log_lines.append(str(text or "").rstrip())
+        if not self._ui_log_flush_timer.isActive():
+            self._ui_log_flush_timer.start()
+
+    def _flush_pending_ui_logs(self):
+        if not self._pending_ui_log_lines:
+            return
+        pending = self._pending_ui_log_lines
+        self._pending_ui_log_lines = []
+        self.log_output.appendPlainText("\n".join(pending))
+
+    def _clear_process_log(self):
+        self._pending_ui_log_lines.clear()
+        self._ui_log_flush_timer.stop()
+        self.log_output.clear()
 
     def ensure_process_dialog(self):
         if self.process_dialog is None:
@@ -10193,7 +10252,7 @@ class SceneEditorWindow(QMainWindow):
         process_dialog.show()
         process_dialog.raise_()
         process_dialog.activateWindow()
-        self.log_output.clear()
+        self._clear_process_log()
         prompt_text = str(prompt_text or "").strip()
         image_edit_engine = normalize_qwen_image_edit_engine(image_edit_engine)
         additional_instruction = str(additional_instruction or "").strip()
@@ -10291,7 +10350,7 @@ class SceneEditorWindow(QMainWindow):
             },
         }.get(prompt_kind, prompt_kind)
 
-        self.log_output.clear()
+        self._clear_process_log()
         self.append_log(f"Membuat prompt {prompt_label} untuk {scene_dir.name}")
         prompt_model = str(
             self.project_settings.get("prompt_generation", {}).get(
@@ -11185,6 +11244,7 @@ class SceneEditorWindow(QMainWindow):
         )
 
     def tail_process_log(self, max_lines=12):
+        self._flush_pending_ui_logs()
         text = self.log_output.toPlainText().strip()
         if not text:
             return ""
@@ -11211,7 +11271,7 @@ class SceneEditorWindow(QMainWindow):
         self.process.readyReadStandardError.connect(self.on_process_stderr)
         self.process.finished.connect(self.on_process_finished)
         self._process_output_buffer = ""
-        self.log_output.clear()
+        self._clear_process_log()
         self.append_log(f"{title} dengan {python_exe}")
         self.process.start()
         if not self.process.waitForStarted(3000):

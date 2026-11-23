@@ -5261,7 +5261,8 @@ class SceneEditorWindow(QMainWindow):
                 page_layout.addLayout(r2v_panjang_mode_layout, 4, 1, 1, 3)
                 page_layout.addWidget(
                     QLabel(
-                        "Reference global (maks. 4 gambar). Frame awal Proses 1 opsional. "
+                        f"Reference global (maks. {MINIMAX_H3_R2V_PANJANG_MAX_GLOBAL_IMAGE_REFERENCES} gambar; "
+                        "total maksimal 7 gambar per proses). Frame awal Proses 1 opsional. "
                         "Proses 2–4 otomatis menambahkan frame terakhir proses sebelumnya "
                         "sebagai image reference tambahan."
                     ),
@@ -10025,7 +10026,7 @@ class SceneEditorWindow(QMainWindow):
                     "The process-specific instructions below are authoritative for the action and requested shot count of each process.",
                 ])
             elif is_r2v_panjang and stage_number == 1 and references.get("initial_image"):
-                initial_picture_number = len(references["images"])
+                initial_picture_number = len(references["images"]) + 1
                 lines.extend([
                     "INITIAL FRAME RULE: This R2V-Panjang Process 1 begins from the optional initial-frame Picture listed below.",
                     f"The initial-frame Picture is <Picture {initial_picture_number}>.",
@@ -10044,7 +10045,7 @@ class SceneEditorWindow(QMainWindow):
                     "Do not use the I2VA reference object or I2VA alignment anchor.",
                 ])
             elif is_r2v_panjang and stage_number > 1:
-                carry_picture_number = len(references["images"])
+                carry_picture_number = len(references["images"]) + 1
                 lines.extend([
                     "INITIAL FRAME RULE: This R2V Ref2VA video begins from the automatically supplied initial-frame Picture listed below.",
                     f"The initial-frame Picture is <Picture {carry_picture_number}>.",

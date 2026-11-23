@@ -4,7 +4,7 @@
 
 Scene `minimax-h3_r2v` membuat video MiniMax H3 Reference-to-Video dengan reference media yang dipilih secara dinamis:
 
-- maksimal 5 Picture;
+- maksimal 7 Picture;
 - maksimal 3 Audio;
 - maksimal 1 Video;
 - minimal 1 reference dari salah satu kategori.

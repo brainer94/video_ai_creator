@@ -25,7 +25,7 @@ Jangan menambahkan `id_new`, `id_old`, `en`, wrapper translasi, atau format prom
 
 ## Urutan reference
 
-`references.images` menyimpan maksimal empat gambar global dalam urutan posisi UI. `references.initial_image` menyimpan satu frame awal opsional untuk Proses 1 dan tidak menjadi reference global. Runtime mengirim gambar global terlebih dahulu sebagai `Picture 1..N`, lalu mengirim `initial_image` pada Proses 1 atau frame carry pada proses 2-4 sebagai `Picture N+1`. Dengan demikian satu workflow R2V tetap berada dalam batas lima slot Picture.
+`references.images` menyimpan maksimal enam gambar global dalam urutan posisi UI. `references.initial_image` menyimpan satu frame awal opsional untuk Proses 1 dan tidak menjadi reference global. Runtime mengirim gambar global terlebih dahulu sebagai `Picture 1..N`, lalu mengirim `initial_image` pada Proses 1 atau frame carry pada proses 2-4 sebagai `Picture N+1`. Dengan demikian satu workflow R2V tetap berada dalam batas tujuh slot Picture.
 
 `references.audios` maksimal tiga item dan `references.video` maksimal satu item. Token Audio dan Video juga mengikuti urutan array, bukan urutan abjad nama file.
 

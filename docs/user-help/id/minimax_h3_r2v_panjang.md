@@ -29,7 +29,7 @@ Referensi yang dipilih pada bagian awal digunakan oleh seluruh proses yang aktif
 
 ### Referensi gambar
 
-Pilih sampai empat gambar yang ingin digunakan bersama selama rangkaian video. Gambar-gambar ini dapat membantu menjaga identitas subjek, tampilan objek, pakaian, lingkungan, gaya visual, atau unsur lain yang ingin dipertahankan.
+Pilih sampai enam gambar yang ingin digunakan bersama selama rangkaian video. Satu slot gambar tambahan digunakan otomatis untuk frame awal Proses 1 atau frame carry dari proses sebelumnya, sehingga setiap proses dapat memakai sampai tujuh gambar. Gambar-gambar ini dapat membantu menjaga identitas subjek, tampilan objek, pakaian, lingkungan, gaya visual, atau unsur lain yang ingin dipertahankan.
 
 Urutan gambar tetap penting. Gambar yang dipilih lebih dahulu menjadi acuan pertama, lalu diikuti gambar berikutnya. Saat menulis prompt, sebutkan gambar sesuai urutan yang tampil di layar.
 
@@ -322,7 +322,7 @@ Sebelum dijalankan, pastikan:
 1. Pada tab `Meta`, pilih `minimax-h3_r2v-panjang`.
 2. Atur durasi adegan.
 3. Pada `Jumlah lanjutan`, pilih `1` agar `Proses 1` dan `Proses 2` digunakan.
-4. Pilih referensi global gambar, audio, atau video.
+4. Pilih referensi global gambar, audio, atau video. Maksimal enam gambar global dapat dipilih; satu slot tambahan digunakan otomatis untuk frame awal atau frame carry, sehingga setiap proses dapat mengirim maksimal tujuh gambar.
 5. Pada `Proses 1`, susun prompt dari awal sampai akhir bagian pertama.
 6. Simpan adegan, lalu jalankan rangkaian dengan satu proses aktif terlebih dahulu jika ingin memeriksa hasil Proses 1.
 7. Pada `Proses 2`, susun prompt untuk kejadian yang melanjutkan akhir Proses 1.

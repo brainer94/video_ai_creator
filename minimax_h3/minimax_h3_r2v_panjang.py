@@ -10,7 +10,10 @@ from minimax_h3_r2v.minimax_h3_r2v import DEFAULT_R2V_PROMPT
 SCENE_TYPE = "minimax-h3_r2v-panjang"
 PROMPT_FILENAME = "minimax_h3_r2v_panjang_prompt.json"
 MAX_PROMPTS = 4
-MAX_GLOBAL_IMAGE_REFERENCES = 4
+# R2V-Panjang sends the selected global images plus one process-specific
+# initial/carry frame. Keep the total per workflow within the seven Picture
+# slots supported by the R2V template.
+MAX_GLOBAL_IMAGE_REFERENCES = 6
 
 
 def build_default_prompt() -> dict:

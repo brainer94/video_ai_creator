@@ -26,7 +26,7 @@ Enam section runtime adalah:
 
 Pada format authoring, bagian `detailed_description` disusun melalui `style_opening` dan `shots[]`. Isi adegan tidak perlu ditulis ulang hanya karena formatnya dikompilasi oleh aplikasi.
 
-Reference aktif disimpan sebagai manifest scene. Untuk scene R2V biasa, aplikasi mendukung maksimal lima gambar, tiga audio, dan satu video, serta membutuhkan minimal satu reference aktif.
+Reference aktif disimpan sebagai manifest scene. Untuk scene R2V biasa, aplikasi mendukung maksimal tujuh gambar, tiga audio, dan satu video, serta membutuhkan minimal satu reference aktif.
 
 ## Bahasa dan token tetap
 

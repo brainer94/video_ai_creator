@@ -63,7 +63,7 @@ Parser tetap menerima format lama `[Shot N] At MM:SS.mmm, ...` agar project lama
 
 Untuk scene `minimax-h3_r2v-panjang`, gunakan empat prompt authoring di
 `minimax_h3_r2v_panjang_prompt.json`. Reference image global ditulis dalam
-`references.images` dengan maksimal empat item. `references.initial_image`
+`references.images` dengan maksimal enam item. `references.initial_image`
 bersifat opsional dan hanya digunakan sebagai Picture tambahan pada Proses 1;
 field ini tidak menjadi reference global. Pada proses 2–4, runtime menambahkan
 frame terakhir proses sebelumnya sebagai Picture tambahan setelah seluruh

@@ -60,7 +60,7 @@ Menggunakan pengaturan pemrosesan MiniMax H3 yang lebih cepat.
 
 ### Referensi gambar
 
-Tersedia hingga lima slot `Picture`.
+Tersedia hingga tujuh slot `Picture`.
 
 Setiap slot dapat diisi dengan satu file gambar dari aset adegan. Tidak semua slot harus diisi.
 
@@ -361,7 +361,7 @@ Periksa hal-hal berikut jika scene berwarna merah atau tidak dapat dijalankan:
 
 - durasi berada antara 0 sampai 15 detik;
 - minimal satu referensi gambar, audio, atau video dipilih;
-- maksimal lima gambar dipilih;
+- maksimal tujuh gambar dipilih;
 - maksimal tiga audio dipilih;
 - maksimal satu video dipilih;
 - tidak ada referensi yang sama berulang;

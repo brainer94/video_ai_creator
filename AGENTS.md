@@ -53,7 +53,7 @@ Catatan format prompt:
 - semua slot prompt menyimpan nilai langsung berbahasa Inggris; tidak ada wrapper bahasa pada JSON;
 - prompt terstruktur MiniMax T2V, I2V, dan R2V memakai `shots[]` dengan bentuk item yang sama;
 - R2V menyimpan `style_opening` dan `shots[]`; aplikasi mengompilasinya menjadi `detailed_description` saat runtime;
-- R2V-Panjang menyimpan empat prompt pada `prompts[]`; maksimal empat gambar global dikirim lebih dulu, lalu frame awal Proses 1 (opsional) atau frame terakhir proses sebelumnya ditambahkan sebagai image terakhir;
+- R2V-Panjang menyimpan empat prompt pada `prompts[]`; maksimal enam gambar global dikirim lebih dulu, lalu frame awal Proses 1 (opsional) atau frame terakhir proses sebelumnya ditambahkan sebagai image terakhir, sehingga totalnya maksimal tujuh Picture per proses;
 - editor prompt interaktif MiniMax berada langsung di dalam tab scene dan tidak menampilkan JSON mentah;
 - tombol `Buat Prompt` memakai Gemini untuk menghasilkan prompt Inggris; runtime hanya memvalidasi dan menserialisasi, tanpa translasi;
 - model Gemini untuk `Buat Prompt` disimpan pada `project_settings.json.prompt_generation.model`;
@@ -207,7 +207,7 @@ Kebutuhan prompt per `scene_type`:
   - membutuhkan `scene_meta.json` dan `minimax_h3_r2v_panjang_prompt.json`
   - durasi scene berupa angka desimal `0.0` sampai `15.0` dengan maksimal 4 angka desimal; durasi `0.0` menghasilkan output minimum 5 frame per proses
   - memakai empat proses R2V berantai; `continuations` bernilai integer `0` sampai `3`
-  - reference image, audio, dan video dipilih sekali secara global untuk semua proses; maksimal empat gambar global dipakai agar satu slot Picture tersedia untuk image awal/carry
+  - reference image, audio, dan video dipilih sekali secara global untuk semua proses; maksimal enam gambar global dipakai agar satu slot Picture tersedia untuk image awal/carry, sehingga totalnya maksimal tujuh Picture per proses
   - Proses 1 dapat memilih satu `initial_image` opsional; image ini ditambahkan setelah seluruh Picture global sebagai frame pertama
   - proses 2–4 otomatis menambahkan frame terakhir proses sebelumnya setelah seluruh Picture global; frame ini tidak dipilih manual dan tidak ditulis ke `references.images`
   - setiap proses memakai prompt Ref2VA berbeda dari array `prompts` yang berisi tepat 4 prompt
@@ -1112,7 +1112,7 @@ Scene type: `minimax-h3_r2v-panjang`
 
 - memakai empat proses R2V berantai dengan template `api_template/minimax_h3_r2v_api.json` yang sama pada setiap proses
 - file prompt `minimax_h3_r2v_panjang_prompt.json` memiliki `prompts[4]`, `prompt_instructions[4]`, `continuations`, `run_start_stage`, dan reference global
-- maksimal empat Picture global dikirim dalam urutan `references.images`; `references.initial_image` opsional dipakai hanya Proses 1 sebagai Picture setelah semua Picture global
+- maksimal enam Picture global dikirim dalam urutan `references.images`; `references.initial_image` opsional dipakai hanya Proses 1 sebagai Picture setelah semua Picture global
 - proses 2–4 menambahkan frame terakhir proses sebelumnya sebagai Picture setelah semua Picture global
 - frame carry diekstrak dari segment proses sebelumnya, tidak dipilih manual, dan tidak ditulis ke `references.images`
 - maksimal tiga Audio global dan satu Video global dipakai pada seluruh proses
@@ -1152,9 +1152,9 @@ Workflow ini memakai mode full-reference `Ref2VA` dari skill `MINIMAX-H3`. Pada 
 
 Semua section ditulis dalam bahasa Inggris. Bahasa asli hanya dipertahankan untuk dialog, lirik, dan teks yang terlihat di dalam scene. JSON authoring tidak lagi memakai wrapper bahasa atau metadata translasi.
 
-Tab R2V dapat memilih maksimal 5 gambar, 3 audio, dan 1 video sebagai reference. Reference yang dipilih diberi nomor berurutan mulai dari `Picture 1`, `Audio 1`, atau `Video 1`; reference yang tidak dipilih tidak dikirim ke workflow.
+Tab R2V dapat memilih maksimal 7 gambar, 3 audio, dan 1 video sebagai reference. Reference yang dipilih diberi nomor berurutan mulai dari `Picture 1`, `Audio 1`, atau `Video 1`; reference yang tidak dipilih tidak dikirim ke workflow.
 
-- Gambar memakai dropdown bernomor `Picture 1` sampai `Picture 5`; audio memakai `Audio 1` sampai `Audio 3`. Tombol naik/turun menukar urutan slot yang terisi.
+- Gambar memakai dropdown bernomor `Picture 1` sampai `Picture 7`; audio memakai `Audio 1` sampai `Audio 3`. Tombol naik/turun menukar urutan slot yang terisi.
 - Urutan slot mengikuti array `references.images` dan `references.audios` dalam `minimax_h3_r2v_prompt.json`. Struktur JSON tetap sama; hanya daftar pilihan file di dropdown yang diurutkan abjad, bukan referensi terpilih.
 - Slot diisi berurutan tanpa celah dan file yang sudah dipakai tidak ditawarkan pada slot lain. Memilih `(Tidak dipakai)` menghapus slot tersebut dan menggeser referensi sesudahnya ke atas.
 - Save, reload scene, dan refresh aset mempertahankan urutan. File referensi yang hilang tetap berada di slot semula dengan label `tidak ditemukan`, sehingga nomor referensi lain tidak berubah otomatis.
@@ -1169,6 +1169,8 @@ Tab R2V dapat memilih maksimal 5 gambar, 3 audio, dan 1 video sebagai reference.
 | `<Picture 3>` | `ref_images.ref_image_2` |
 | `<Picture 4>` | `ref_images.ref_image_3` |
 | `<Picture 5>` | `ref_images.ref_image_4` |
+| `<Picture 6>` | `ref_images.ref_image_5` |
+| `<Picture 7>` | `ref_images.ref_image_6` |
 | `<Video 1>` | `ref_videos.ref_video_0` |
 | audio sinkron dari `<Video 1>` | `ref_video_audios.ref_video_audio_0` |
 | `<Audio 1>` | `ref_audios.ref_audio_0` |
@@ -1432,7 +1434,7 @@ Dokumentasi ini menjadi ringkasan aturan terbaru untuk seluruh scene MiniMax H3.
 
 - File prompt scene yang didukung mencakup `minimax_h3_t2v_prompt.json`, `minimax_h3_i2v_prompt.json`, `minimax_h3_i2v_panjang_prompt.json`, `minimax_h3_s2v_prompt.json`, `minimax_h3_r2v_prompt.json`, dan `minimax_h3_r2v_panjang_prompt.json`.
 - Referensi ringkas yang dikirim ke LLM untuk tombol `Buat Prompt` disesuaikan dengan scene: `SCENE-GENERAL.md` serta dokumen scene dan prompt khususnya. Aturan dialog bersama berasal dari `MINIMAX-H3-DIALOG.md`.
-- S2V hanya boleh memakai reference aktif `<Picture 1>` dan `<Audio 1>`. R2V memakai manifest reference aktif secara dinamis, dengan batas maksimal 5 Picture, 3 Audio, dan 1 Video. R2V-Panjang memakai maksimal 4 Picture global lalu menambahkan `initial_image` Proses 1 atau frame carry sebagai Picture berikutnya sesuai proses. Token reference yang tidak aktif tidak boleh dikembalikan oleh LLM.
+- S2V hanya boleh memakai reference aktif `<Picture 1>` dan `<Audio 1>`. R2V memakai manifest reference aktif secara dinamis, dengan batas maksimal 7 Picture, 3 Audio, dan 1 Video. R2V-Panjang memakai maksimal 6 Picture global lalu menambahkan `initial_image` Proses 1 atau frame carry sebagai Picture berikutnya sesuai proses, sehingga totalnya maksimal 7 Picture per proses. Token reference yang tidak aktif tidak boleh dikembalikan oleh LLM.
 - Referensi `SCENE-GENERAL.md` mengikuti request `Buat Prompt`: `Context` berisi judul, tipe, target, mode, dan parameter scene yang tersedia; `Prompt`, `ADDITIONAL INSTRUCTION FROM UI`, serta manifest/gambar referensi disertakan jika tersedia. LLM menyusun prompt Inggris untuk target aktif sesuai schema respons.
 - Validasi saat save dan runtime berfokus pada object prompt langsung yang valid; tidak ada translasi runtime.
 

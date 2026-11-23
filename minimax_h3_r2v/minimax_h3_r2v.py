@@ -34,9 +34,9 @@ FAST_SHIFT_AUDIO = 3
 FAST_SPARSE_START_PERCENT = 0.0
 MAIN_NODE = "136"
 PICTURE_1_NODE = "143"
-PICTURE_NODE_IDS = ("143", "144", "151", "163", "164")
+PICTURE_NODE_IDS = ("143", "144", "151", "163", "164", "168", "169")
 AUDIO_1_NODE = "153"
-MAX_IMAGE_REFERENCES = 5
+MAX_IMAGE_REFERENCES = len(PICTURE_NODE_IDS)
 MAX_AUDIO_REFERENCES = 3
 MAX_AUDIO_DURATION = 15.0
 MAX_DURATION = 15
@@ -223,6 +223,20 @@ def remove_picture_5(workflow: dict) -> dict:
     return workflow
 
 
+def remove_picture_6(workflow: dict) -> dict:
+    """Remove Picture 6 node 168 and ``ref_image_5`` from node 136."""
+    _remove_node(workflow, "168")
+    _remove_input(workflow, MAIN_NODE, "ref_images.ref_image_5")
+    return workflow
+
+
+def remove_picture_7(workflow: dict) -> dict:
+    """Remove Picture 7 node 169 and ``ref_image_6`` from node 136."""
+    _remove_node(workflow, "169")
+    _remove_input(workflow, MAIN_NODE, "ref_images.ref_image_6")
+    return workflow
+
+
 def remove_video_1(workflow: dict) -> dict:
     """Remove Video 1 and both its video and synchronized-audio connections."""
     _remove_node(workflow, "152")
@@ -259,6 +273,8 @@ def remove_references(
     remove_picture_3_reference: bool = False,
     remove_picture_4_reference: bool = False,
     remove_picture_5_reference: bool = False,
+    remove_picture_6_reference: bool = False,
+    remove_picture_7_reference: bool = False,
     remove_video_1_reference: bool = False,
     remove_audio_1_reference: bool = False,
     remove_audio_2_reference: bool = False,
@@ -276,6 +292,10 @@ def remove_references(
         remove_picture_4(workflow)
     if remove_picture_5_reference:
         remove_picture_5(workflow)
+    if remove_picture_6_reference:
+        remove_picture_6(workflow)
+    if remove_picture_7_reference:
+        remove_picture_7(workflow)
     if remove_video_1_reference:
         remove_video_1(workflow)
     if remove_audio_1_reference:
@@ -461,6 +481,8 @@ def build_workflow(
         "remove_picture_3_reference",
         "remove_picture_4_reference",
         "remove_picture_5_reference",
+        "remove_picture_6_reference",
+        "remove_picture_7_reference",
         "remove_video_1_reference",
         "remove_audio_1_reference",
         "remove_audio_2_reference",

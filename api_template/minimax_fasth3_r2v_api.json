@@ -264,6 +264,14 @@
         "164",
         0
       ],
+      "ref_images.ref_image_5": [
+        "168",
+        0
+      ],
+      "ref_images.ref_image_6": [
+        "169",
+        0
+      ],
       "ref_videos.ref_video_0": [
         "152",
         0
@@ -413,6 +421,24 @@
     "class_type": "LoadImage",
     "_meta": {
       "title": "Picture 5"
+    }
+  },
+  "168": {
+    "inputs": {
+      "image": "Picture_6.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Picture 6"
+    }
+  },
+  "169": {
+    "inputs": {
+      "image": "Picture_7.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Picture 7"
     }
   },
   "165": {

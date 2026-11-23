@@ -1377,8 +1377,10 @@ def process_scene(scene_dir, server):
         video_name = str(references.get('video', '')).strip()
         if len(image_names) > MINIMAX_H3_R2V_PANJANG_MAX_GLOBAL_IMAGE_REFERENCES:
             write_log(
-                "minimax-h3_r2v-panjang maksimal memiliki 4 image reference global "
-                "karena satu slot image dicadangkan untuk frame proses sebelumnya."
+                "minimax-h3_r2v-panjang maksimal memiliki "
+                f"{MINIMAX_H3_R2V_PANJANG_MAX_GLOBAL_IMAGE_REFERENCES} image reference global "
+                "karena satu slot image dicadangkan untuk frame proses sebelumnya "
+                "dalam total tujuh slot gambar."
             )
             return False
         if initial_image_name and initial_image_name in image_names:

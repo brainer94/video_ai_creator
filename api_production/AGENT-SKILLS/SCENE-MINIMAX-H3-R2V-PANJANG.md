@@ -45,6 +45,8 @@ Setiap Subject harus menyebutkan Picture sumbernya dan semua Picture tempat Subj
 `<Subject 1> is the man in the tech armor from <Picture 1> and also appears in <Picture N+1>.`
 Jika proses memiliki frame awal, ulangi pola tersebut untuk setiap Subject yang terlihat pada frame awal. ID Subject harus konsisten pada seluruh proses dan jangan membuat kalimat Subject duplikat terpisah.
 
+Frame awal dan frame akhir tetap merupakan reference Picture biasa. Keduanya dapat dipakai pada `subject_definitions`, `retention_analysis`, dan visual shot untuk menjelaskan subjek, komposisi, detail visual, dan kesinambungan. Peran tambahannya adalah sebagai anchor pembuka dan target akhir; shot pertama harus dimulai dari frame awal aktif, sedangkan shot terakhir harus mencapai frame akhir aktif.
+
 ## Input UI
 
 Tab `MINIMAX-H3_R2V-PANJANG` mengikuti layout `MINIMAX-H3_I2V-PANJANG`:

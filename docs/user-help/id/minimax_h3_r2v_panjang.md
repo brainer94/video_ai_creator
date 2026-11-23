@@ -52,6 +52,8 @@ Setiap tab proses memiliki dua pilihan:
 
 Keduanya memiliki pilihan `(Tanpa Gambar)` atau gambar yang tersedia pada aset adegan. Jika frame awal Proses 2, 3, atau 4 dipilih, gambar tersebut menggantikan frame otomatis dari proses sebelumnya. Jika dibiarkan `(Tanpa Gambar)`, aplikasi mengambil frame terakhir proses sebelumnya setelah proses tersebut selesai dan menggunakannya sebagai gambar awal proses berikutnya. Proses 1 tidak memiliki frame otomatis sebelumnya.
 
+> **Penting:** Proses 2, 3, dan 4 selalu memiliki frame awal saat dijalankan. Pilihan `(Tanpa Gambar)` pada proses tersebut bukan berarti proses berjalan tanpa frame awal; pilihan itu berarti aplikasi memakai frame terakhir dari proses sebelumnya. Jika frame proses sebelumnya belum tersedia, proses lanjutan tidak dapat dijalankan.
+
 Jika frame akhir dipilih, prompt proses diarahkan untuk berakhir tepat pada gambar tersebut. Jika tidak dipilih, proses berakhir sesuai prompt tanpa gambar akhir yang ditetapkan.
 
 Semua gambar yang dipilih harus tetap tersedia di aset adegan saat proses dijalankan. Hindari memilih file yang sama sebagai reference global dan frame proses yang sama.
@@ -85,6 +87,66 @@ Pada setiap proses setelah Proses 1, aplikasi menggunakan:
 - frame akhir yang dipilih, jika ada.
 
 Frame otomatis tersebut membantu proses berikutnya melanjutkan tampilan dari akhir video sebelumnya. Anda tidak perlu memilihnya secara manual.
+
+### Urutan Picture dalam prompt
+
+Jika terdapat `N` gambar referensi global, penomoran gambar pada setiap proses mengikuti pola berikut:
+
+- frame awal yang dipilih menjadi `<Picture N+1>`;
+- pada Proses 1, frame akhir menjadi `<Picture N+2>` jika frame awal dipilih, atau `<Picture N+1>` jika frame awal `(Tanpa Gambar)`;
+- pada Proses 2–4, frame awal yang dipilih atau frame carry otomatis dari proses sebelumnya menjadi `<Picture N+1>`;
+- pada Proses 2–4, frame akhir yang dipilih menjadi `<Picture N+2>` karena frame awal selalu tersedia saat runtime.
+
+Contoh dengan dua gambar global:
+
+```text
+Picture 1–2 = gambar referensi global
+Picture 3   = frame awal, jika dipilih
+Picture 4   = frame akhir, jika frame awal juga dipilih
+```
+
+Nomor Picture tersebut digunakan oleh aplikasi saat menyusun prompt dan mengirim gambar ke ComfyUI. Pengguna cukup menjelaskan alur perubahan dari frame awal menuju frame akhir pada satu atau beberapa bidikan.
+
+### Peran frame awal dan frame akhir sebagai referensi
+
+Frame awal dan frame akhir bukan hanya penanda waktu. Keduanya juga dikirim sebagai gambar referensi ke model dan dapat digunakan seperti Picture lainnya dalam prompt.
+
+Gambar tersebut dapat membantu menjelaskan:
+
+- identitas dan penampilan subjek;
+- pakaian, bentuk tubuh, warna, dan properti;
+- lingkungan, latar, pencahayaan, serta komposisi;
+- perubahan yang harus terjadi selama video;
+- kondisi visual yang harus dicapai pada akhir proses.
+
+Perbedaannya adalah frame awal dan frame akhir memiliki tugas tambahan:
+
+- frame awal menjadi acuan pembukaan video;
+- frame akhir menjadi target visual pada akhir video;
+- keduanya tetap dapat disebut pada `Definisi Subjek`, `Analisis Pemertahanan Referensi`, dan isi bidikan jika diperlukan;
+- frame akhir tidak hanya boleh disebut pada bidikan terakhir, tetapi bidikan terakhir harus mengarahkan video sampai ke kondisi frame akhir;
+- frame awal tidak berarti seluruh video harus diam atau mempertahankan gambar tersebut tanpa perubahan. Prompt tetap harus menjelaskan gerakan dan perubahan dari awal menuju akhir.
+
+Contoh dengan dua gambar global, frame awal, dan frame akhir:
+
+```text
+<Picture 1> = referensi global pertama
+<Picture 2> = referensi global kedua
+<Picture 3> = frame awal
+<Picture 4> = frame akhir
+```
+
+Contoh penggunaan dalam prompt:
+
+```text
+<Subject 1> is the woman from <Picture 1> and also appears in <Picture 3> and <Picture 4>.
+<Picture 2> provides the room layout and lighting reference.
+The video begins exactly from <Picture 3>. The woman walks across the room while the camera follows her movement and gradually reaches the composition shown in <Picture 4>. The video ends exactly on <Picture 4>.
+```
+
+Untuk Proses 2–4, frame carry otomatis juga menjadi Picture referensi. Jika terdapat dua gambar global dan frame awal proses dibiarkan `(Tanpa Gambar)`, frame carry menjadi `<Picture 3>`. Tidak perlu menulis bahwa gambar tersebut berasal dari proses sebelumnya; cukup gunakan `<Picture 3>` sebagai frame awal dan referensi visual proses tersebut.
+
+Gambar global tetap dapat dipakai bersama frame awal atau frame akhir. Namun, jangan menyebut Picture yang tidak benar-benar tersedia pada proses tersebut. Audio memakai token `<Audio N>`, video memakai `<Video 1>`, dan keduanya tidak mengubah nomor Picture.
 
 Jika rangkaian dimulai dari Proses 1, frame untuk proses berikutnya akan tersedia secara otomatis setelah proses sebelumnya selesai. Jika rangkaian dimulai langsung dari proses lanjutan melalui `Run mulai dari tab`, hasil proses-proses sebelumnya harus sudah tersedia.
 

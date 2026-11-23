@@ -1122,6 +1122,8 @@ Scene type: `minimax-h3_r2v-panjang`
 - sebelum workflow dibuat, adapter menambahkan instruksi frame berdasarkan manifest aktif: `<Picture N> is the initial frame and visual reference for the entire video.`, instruksi `fully_preserved` pada `retention_analysis`, dan `The video begins exactly from <Picture N>.` pada shot pertama jika frame awal tersedia
 - jika frame akhir tersedia, adapter menambahkan `<Picture M> is the final frame and visual reference for the entire video.`, instruksi `fully_preserved` final pada `retention_analysis`, dan `The video ends exactly on <Picture M>.` pada shot terakhir
 - jika frame awal atau frame akhir tidak tersedia, instruksi anchor yang bersangkutan tidak boleh dibuat; pada proses 2–4, `first.source=none` tetap berarti frame carry otomatis dan nomor Picture-nya mengikuti manifest proses
+- frame awal dan frame akhir tetap merupakan reference Picture biasa: keduanya boleh dipakai pada `subject_definitions`, `retention_analysis`, dan visual shot untuk menjelaskan identitas, komposisi, detail visual, serta kesinambungan; peran temporalnya menambahkan anchor pembuka/target akhir
+- jangan membatasi frame awal hanya pada shot pertama atau frame akhir hanya pada penyebutan terakhir; namun shot pertama harus dimulai dari frame awal yang aktif dan shot terakhir harus mencapai frame akhir yang aktif
 - setelah injeksi anchor, adapter mengompilasi `style_opening + shots[]` menjadi `detailed_description` dengan format rentang `[Shot N] From X.XX to Y.YY seconds, ...`
 - segment disimpan sebagai `minimax_h3_r2v_panjang_segment_<nomor>.mp4`; semua segment yang tersedia digabung secara numerik menjadi `minimax_h3_r2v_panjang_final.mp4`
 - color match dilakukan setelah penggabungan segment

@@ -63,26 +63,31 @@ Parser tetap menerima format lama `[Shot N] At MM:SS.mmm, ...` agar project lama
 
 Untuk scene `minimax-h3_r2v-panjang`, gunakan empat prompt authoring di
 `minimax_h3_r2v_panjang_prompt.json`. Reference image global ditulis dalam
-`references.images` dengan maksimal enam item. `references.initial_image`
-bersifat opsional dan hanya digunakan sebagai Picture tambahan pada Proses 1;
-field ini tidak menjadi reference global. Pada proses 2–4, runtime menambahkan
-frame terakhir proses sebelumnya sebagai Picture tambahan setelah seluruh
-reference global. Jangan menulis frame carry ke array reference global.
+`references.images` dengan maksimal enam item. Frame proses ditulis dalam
+`stage_references`, yang berisi empat item `first` dan `last`; masing-masing
+boleh bersumber dari aset scene atau `none`. Jika `first` proses 2-4 adalah
+`none`, runtime menambahkan frame terakhir proses sebelumnya sebagai Picture
+awal otomatis. Jangan menulis frame otomatis ke array reference global.
 
 Struktur reference khusus R2V-Panjang adalah:
 
 ```json
 {
   "images": [],
-  "initial_image": "",
   "audios": [],
-  "video": ""
+  "video": "",
+  "stage_references": [
+    {
+      "first": {"source": "none", "name": ""},
+      "last": {"source": "none", "name": ""}
+    }
+  ]
 }
 ```
 
-Pada Proses 1 dengan `initial_image`, gunakan Picture terakhir sebagai frame
-awal dan tulis tiga kalimat pembuka Ref2VA berikut, dengan `N` sebagai jumlah
-reference image global:
+Jika frame awal tersedia, gunakan Picture setelah seluruh reference global
+sebagai frame awal dan tulis tiga kalimat pembuka Ref2VA berikut, dengan `N`
+sebagai jumlah reference image global:
 
 ```text
 <Picture N+1> is the initial frame and visual reference for the entire video.
@@ -90,16 +95,25 @@ reference image global:
 [Shot 1] The video begins exactly from <Picture N+1>.
 ```
 
-Jika Proses 1 tidak memiliki `initial_image`, jangan menyatakan bahwa video
-dimulai tepat dari Picture tertentu. Picture global tetap dapat dipakai sebagai
-reference subject, gaya, komposisi, atau properti. Pada proses 2–4, gunakan
-Picture tambahan yang berasal dari frame proses sebelumnya dengan pola pembuka
-yang sama. Jangan menjelaskan asal frame tersebut kepada LLM dan jangan memakai
-object atau anchor first-frame I2VA.
+Jika proses tidak memiliki frame awal, jangan menyatakan bahwa video dimulai
+tepat dari Picture tertentu. Picture global tetap dapat dipakai sebagai
+reference subject, gaya, komposisi, atau properti. Pada proses 2-4 dengan
+`first.source=none`, Picture awal berasal dari frame terakhir proses sebelumnya
+dan memakai pola pembuka yang sama. Jangan menjelaskan asal frame otomatis
+tersebut kepada LLM dan jangan memakai object atau anchor first-frame I2VA.
 
-Pada Proses 1 dengan `initial_image`, dan pada proses 2-4, Picture tambahan
-setelah reference global adalah frame awal video proses tersebut. Jika terdapat
-`N` gambar global, Picture ini bernomor `N+1`. Ikuti pola Ref2VA S2V untuk
+Jika frame akhir dipilih, Picture tersebut berada setelah Picture frame awal
+(atau setelah Picture global bila tidak ada frame awal). Awali
+`subject_definitions` dan `retention_analysis` dengan pernyataan final-frame
+untuk Picture tersebut, dan akhiri visual shot terakhir dengan:
+
+`The video ends exactly on <Picture N>.`
+
+Jika frame akhir tidak dipilih, jangan membuat pernyataan final-frame.
+
+Jika frame awal terpilih atau otomatis tersedia, Picture tambahan setelah
+reference global adalah frame awal video proses tersebut. Jika terdapat `N`
+gambar global, Picture ini bernomor `N+1`. Ikuti pola Ref2VA S2V untuk
 mendefinisikan perannya, bukan anchor atau object `reference` I2VA. Awali field
 berikut dengan kalimat yang sesuai nomor Picture aktif:
 
@@ -124,12 +138,11 @@ Token harus dibuat dari manifest aktif dengan penomoran rapat: image `<Picture N
 Pertahankan setiap token reference persis sama pada keenam section. Jangan mengarang, mengganti nama, atau melompati nomor token.
 
 Setiap `Subject` harus dijelaskan sumber `Picture`-nya dan pada `Picture` mana
-Subject tersebut muncul. Pada Proses 1 dengan `initial_image`, dan pada proses
-2-4, gunakan satu kalimat lengkap dengan pola:
+Subject tersebut muncul. Jika proses memiliki frame awal, gunakan satu kalimat
+lengkap dengan pola:
 `<Subject N> is [description] from <Picture M> and also appears in <Picture K>.`
-ID Subject harus tetap sama antarproses. Pada Proses 1 dengan `initial_image`,
-`K` adalah Picture frame awal yang dipilih; pada proses 2-4, `K` adalah Picture
-frame awal otomatis. Jangan menaruh `also appears` di dalam kurung sebelum `is`
+ID Subject harus tetap sama antarproses. `K` adalah Picture frame awal yang
+dipilih atau Picture frame awal otomatis. Jangan menaruh `also appears` di dalam kurung sebelum `is`
 dan jangan menambahkan kalimat Subject duplikat terpisah.
 
 ## Cara menulis enam section

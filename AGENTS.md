@@ -53,7 +53,7 @@ Catatan format prompt:
 - semua slot prompt menyimpan nilai langsung berbahasa Inggris; tidak ada wrapper bahasa pada JSON;
 - prompt terstruktur MiniMax T2V, I2V, dan R2V memakai `shots[]` dengan bentuk item yang sama;
 - R2V menyimpan `style_opening` dan `shots[]`; aplikasi mengompilasinya menjadi `detailed_description` saat runtime;
-- R2V-Panjang menyimpan empat prompt pada `prompts[]`; maksimal enam gambar global dikirim lebih dulu, lalu frame awal Proses 1 (opsional) atau frame terakhir proses sebelumnya ditambahkan sebagai image terakhir, sehingga totalnya maksimal tujuh Picture per proses;
+- R2V-Panjang menyimpan empat prompt pada `prompts[]` dan empat konfigurasi `stage_references[]`; maksimal enam gambar global dikirim lebih dulu, lalu frame awal/akhir proses ditambahkan sesuai pilihan, dengan frame terakhir proses sebelumnya dipakai otomatis jika frame awal proses lanjutan kosong, sehingga totalnya maksimal tujuh Picture per proses;
 - editor prompt interaktif MiniMax berada langsung di dalam tab scene dan tidak menampilkan JSON mentah;
 - tombol `Buat Prompt` memakai Gemini untuk menghasilkan prompt Inggris; runtime hanya memvalidasi dan menserialisasi, tanpa translasi;
 - model Gemini untuk `Buat Prompt` disimpan pada `project_settings.json.prompt_generation.model`;
@@ -207,9 +207,9 @@ Kebutuhan prompt per `scene_type`:
   - membutuhkan `scene_meta.json` dan `minimax_h3_r2v_panjang_prompt.json`
   - durasi scene berupa angka desimal `0.0` sampai `15.0` dengan maksimal 4 angka desimal; durasi `0.0` menghasilkan output minimum 5 frame per proses
   - memakai empat proses R2V berantai; `continuations` bernilai integer `0` sampai `3`
-  - reference image, audio, dan video dipilih sekali secara global untuk semua proses; maksimal enam gambar global dipakai agar satu slot Picture tersedia untuk image awal/carry, sehingga totalnya maksimal tujuh Picture per proses
-  - Proses 1 dapat memilih satu `initial_image` opsional; image ini ditambahkan setelah seluruh Picture global sebagai frame pertama
-  - proses 2–4 otomatis menambahkan frame terakhir proses sebelumnya setelah seluruh Picture global; frame ini tidak dipilih manual dan tidak ditulis ke `references.images`
+  - reference image, audio, dan video dipilih sekali secara global untuk semua proses; maksimal enam gambar global dipakai, dengan batas total tujuh Picture per proses setelah frame awal dan frame akhir diperhitungkan
+  - `stage_references[0..3]` menyimpan pilihan `first` dan `last` untuk setiap proses; pilihan frame scene ditambahkan setelah seluruh Picture global sesuai urutannya
+  - jika `first.source` pada proses 2–4 adalah `none`, runtime otomatis menambahkan frame terakhir proses sebelumnya sebagai frame awal; frame otomatis tidak ditulis ke `references.images`
   - setiap proses memakai prompt Ref2VA berbeda dari array `prompts` yang berisi tepat 4 prompt
   - `run_start_stage` dapat menjalankan ulang dari proses tertentu jika segment dan frame proses sebelumnya sudah tersedia
   - hasil semua proses digabung, lalu color match diterapkan pada video gabungan
@@ -615,7 +615,7 @@ Perilaku UI:
   - `Image Edit`
   - `MINIMAX-H3_R2V-PANJANG`
   - `Aset`
-- tab `MINIMAX-H3_R2V-PANJANG` menyediakan empat tab proses dengan layout seperti I2V-Panjang. Reference global dan frame awal Proses 1 opsional dipilih pada Proses 1; proses berikutnya otomatis menampilkan frame carry sebagai Picture tambahan.
+- tab `MINIMAX-H3_R2V-PANJANG` menyediakan empat tab proses dengan layout seperti I2V-Panjang. Reference global dipilih pada Proses 1, sedangkan setiap proses memiliki pilihan frame awal dan frame akhir opsional; proses lanjutan memakai frame carry otomatis bila frame awalnya kosong.
 - scene type `minimax-h3_s2v` menampilkan tab berurutan:
   - `Meta`
   - `Gambar Awal`
@@ -1111,13 +1111,18 @@ Scene type: `minimax-h3_i2v-panjang`
 Scene type: `minimax-h3_r2v-panjang`
 
 - memakai empat proses R2V berantai dengan template `api_template/minimax_h3_r2v_api.json` yang sama pada setiap proses
-- file prompt `minimax_h3_r2v_panjang_prompt.json` memiliki `prompts[4]`, `prompt_instructions[4]`, `continuations`, `run_start_stage`, dan reference global
-- maksimal enam Picture global dikirim dalam urutan `references.images`; `references.initial_image` opsional dipakai hanya Proses 1 sebagai Picture setelah semua Picture global
-- proses 2–4 menambahkan frame terakhir proses sebelumnya sebagai Picture setelah semua Picture global
-- frame carry diekstrak dari segment proses sebelumnya, tidak dipilih manual, dan tidak ditulis ke `references.images`
+- file prompt `minimax_h3_r2v_panjang_prompt.json` memiliki `prompts[4]`, `prompt_instructions[4]`, `continuations`, `run_start_stage`, reference global, dan `stage_references[4]`
+- maksimal enam Picture global dikirim dalam urutan `references.images`; `stage_references` menentukan frame awal dan frame akhir per proses setelah semua Picture global
+- frame awal yang kosong pada proses 2–4 membuat runtime menambahkan frame terakhir proses sebelumnya sebagai Picture awal otomatis
+- frame carry diekstrak dari segment proses sebelumnya dan tidak ditulis ke `references.images`
 - maksimal tiga Audio global dan satu Video global dipakai pada seluruh proses
 - `run_start_stage` hanya boleh melewati proses yang segment dan frame carry-nya sudah tersedia
 - setiap proses aktif memvalidasi prompt Ref2VA dan manifest token sebelum workflow dikirim
+- authoring hanya mengisi `style_opening` dan `shots[]`; `detailed_description` tidak ditulis manual pada JSON authoring
+- sebelum workflow dibuat, adapter menambahkan instruksi frame berdasarkan manifest aktif: `<Picture N> is the initial frame and visual reference for the entire video.`, instruksi `fully_preserved` pada `retention_analysis`, dan `The video begins exactly from <Picture N>.` pada shot pertama jika frame awal tersedia
+- jika frame akhir tersedia, adapter menambahkan `<Picture M> is the final frame and visual reference for the entire video.`, instruksi `fully_preserved` final pada `retention_analysis`, dan `The video ends exactly on <Picture M>.` pada shot terakhir
+- jika frame awal atau frame akhir tidak tersedia, instruksi anchor yang bersangkutan tidak boleh dibuat; pada proses 2–4, `first.source=none` tetap berarti frame carry otomatis dan nomor Picture-nya mengikuti manifest proses
+- setelah injeksi anchor, adapter mengompilasi `style_opening + shots[]` menjadi `detailed_description` dengan format rentang `[Shot N] From X.XX to Y.YY seconds, ...`
 - segment disimpan sebagai `minimax_h3_r2v_panjang_segment_<nomor>.mp4`; semua segment yang tersedia digabung secara numerik menjadi `minimax_h3_r2v_panjang_final.mp4`
 - color match dilakukan setelah penggabungan segment
 - frame terakhir setiap proses tetap disimpan sebagai `minimax_h3_r2v_panjang_frame_<nomor>.png` untuk proses berikutnya atau partial run
@@ -1434,7 +1439,7 @@ Dokumentasi ini menjadi ringkasan aturan terbaru untuk seluruh scene MiniMax H3.
 
 - File prompt scene yang didukung mencakup `minimax_h3_t2v_prompt.json`, `minimax_h3_i2v_prompt.json`, `minimax_h3_i2v_panjang_prompt.json`, `minimax_h3_s2v_prompt.json`, `minimax_h3_r2v_prompt.json`, dan `minimax_h3_r2v_panjang_prompt.json`.
 - Referensi ringkas yang dikirim ke LLM untuk tombol `Buat Prompt` disesuaikan dengan scene: `SCENE-GENERAL.md` serta dokumen scene dan prompt khususnya. Aturan dialog bersama berasal dari `MINIMAX-H3-DIALOG.md`.
-- S2V hanya boleh memakai reference aktif `<Picture 1>` dan `<Audio 1>`. R2V memakai manifest reference aktif secara dinamis, dengan batas maksimal 7 Picture, 3 Audio, dan 1 Video. R2V-Panjang memakai maksimal 6 Picture global lalu menambahkan `initial_image` Proses 1 atau frame carry sebagai Picture berikutnya sesuai proses, sehingga totalnya maksimal 7 Picture per proses. Token reference yang tidak aktif tidak boleh dikembalikan oleh LLM.
+- S2V hanya boleh memakai reference aktif `<Picture 1>` dan `<Audio 1>`. R2V memakai manifest reference aktif secara dinamis, dengan batas maksimal 7 Picture, 3 Audio, dan 1 Video. R2V-Panjang memakai maksimal 6 Picture global lalu menambahkan frame awal/akhir sesuai `stage_references`; jika frame awal proses lanjutan kosong, frame carry menjadi Picture awal otomatis, sehingga totalnya maksimal 7 Picture per proses. Token reference yang tidak aktif tidak boleh dikembalikan oleh LLM.
 - Referensi `SCENE-GENERAL.md` mengikuti request `Buat Prompt`: `Context` berisi judul, tipe, target, mode, dan parameter scene yang tersedia; `Prompt`, `ADDITIONAL INSTRUCTION FROM UI`, serta manifest/gambar referensi disertakan jika tersedia. LLM menyusun prompt Inggris untuk target aktif sesuai schema respons.
 - Validasi saat save dan runtime berfokus pada object prompt langsung yang valid; tidak ada translasi runtime.
 

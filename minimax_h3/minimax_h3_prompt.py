@@ -173,6 +173,131 @@ def ensure_ref2va_initial_frame_instructions(entry: dict, picture_number: int) -
     return result
 
 
+def ensure_ref2va_frame_instructions(
+    entry: dict,
+    first_picture_number: int | None = None,
+    last_picture_number: int | None = None,
+) -> dict:
+    """Apply the runtime first/last-frame instructions for a Ref2VA process.
+
+    R2V does not have I2VA's dedicated ``reference`` object.  When a process
+    receives an explicit first/last image (or an automatic carry frame), the
+    role is therefore declared in the Ref2VA prose and in the first/last shot
+    visuals.  ``None`` removes an instruction previously inserted by an older
+    save so changing a dropdown cannot leave stale Picture numbers in the
+    prompt.
+    """
+    result = unwrap_prompt_value(entry)
+    if not isinstance(result, dict):
+        return {}
+    result = copy.deepcopy(result)
+
+    def strip_generated_frame_headers(value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        patterns = (
+            r"<Picture\s+\d+>\s+is\s+the\s+initial\s+frame\s+and\s+visual\s+reference\s+for\s+the\s+entire\s+video\.\s*",
+            r"<Picture\s+\d+>\s+is\s+the\s+final\s+frame\s+and\s+visual\s+reference\s+for\s+the\s+entire\s+video\.\s*",
+            r"<Picture\s+\d+>\s+\(initial\s+frame\s+and\s+composition\):\s*fully_preserved\s*-\s*preserve\s+the\s+appearance,\s+pose,\s+lighting,\s+background,\s+and\s+framing\.\s*",
+            r"<Picture\s+\d+>\s+\(final\s+frame\s+and\s+composition\):\s*fully_preserved\s*-\s*preserve\s+the\s+appearance,\s+pose,\s+lighting,\s+background,\s+and\s+framing\.\s*",
+        )
+        for pattern in patterns:
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+        return re.sub(r"\s{2,}", " ", text).strip()
+
+    result["subject_definitions"] = strip_generated_frame_headers(
+        result.get("subject_definitions")
+    )
+    result["retention_analysis"] = strip_generated_frame_headers(
+        result.get("retention_analysis")
+    )
+
+    if first_picture_number is not None:
+        result = ensure_ref2va_initial_frame_instructions(
+            result,
+            first_picture_number,
+        )
+    else:
+        result = remove_ref2va_initial_frame_instructions(result)
+
+    def remove_final_frame_prefix(value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        text = re.sub(
+            r"^\s*<Picture\s+\d+>\s+is\s+the\s+final\s+frame\s+and\s+visual\s+reference\s+for\s+the\s+entire\s+video\.\s*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return re.sub(
+            r"\s+<Picture\s+\d+>\s+is\s+the\s+final\s+frame\s+and\s+visual\s+reference\s+for\s+the\s+entire\s+video\.\s*",
+            " ",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+
+    def remove_final_frame_sentence(value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        return re.sub(
+            r"\s*(?:The\s+video|The\s+shot)\s+ends\s+(?:exactly\s+)?on\s+<Picture\s+\d+>\.?\s*$",
+            "",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+
+    for key in ("subject_definitions", "retention_analysis"):
+        result[key] = remove_final_frame_prefix(result.get(key))
+
+    if last_picture_number is not None:
+        try:
+            last_picture_number = int(last_picture_number)
+        except (TypeError, ValueError):
+            last_picture_number = None
+    if last_picture_number is not None and last_picture_number > 0:
+        picture = f"<Picture {last_picture_number}>"
+        result["subject_definitions"] = " ".join(
+            part
+            for part in (
+                f"{picture} is the final frame and visual reference for the entire video.",
+                result.get("subject_definitions", ""),
+            )
+            if str(part).strip()
+        ).strip()
+        result["retention_analysis"] = " ".join(
+            part
+            for part in (
+                f"{picture} (final frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.",
+                result.get("retention_analysis", ""),
+            )
+            if str(part).strip()
+        ).strip()
+
+    shots = result.get("shots")
+    if isinstance(shots, list) and shots:
+        for shot in shots:
+            if isinstance(shot, dict):
+                shot["visual"] = remove_final_frame_sentence(shot.get("visual"))
+        if last_picture_number is not None and last_picture_number > 0:
+            last_shot = next(
+                (shot for shot in reversed(shots) if isinstance(shot, dict)),
+                None,
+            )
+            if last_shot is not None:
+                visual = str(last_shot.get("visual", "") or "").strip()
+                if visual and visual[-1] not in ".!?":
+                    visual += "."
+                last_shot["visual"] = (
+                    f"{visual} The video ends exactly on <Picture {last_picture_number}>."
+                ).strip()
+    return result
+
+
 def ensure_ref2va_shot_text_defaults(entry: dict) -> dict:
     """Fill safe textual defaults for optional-sounding shot fields.
 

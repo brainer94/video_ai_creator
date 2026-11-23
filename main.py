@@ -92,7 +92,7 @@ from prompt_localization import (
 from minimax_h3.minimax_h3_prompt import (
     I2VA_FIRST_SHOT_VISUAL_EN,
     ensure_i2va_frame_instructions,
-    ensure_ref2va_initial_frame_instructions,
+    ensure_ref2va_frame_instructions,
     validate_ref2va_prompt,
     validate_i2va_frame_instructions,
 )
@@ -1368,7 +1368,47 @@ def process_scene(scene_dir, server):
             for value in references.get('images', [])
             if str(value).strip()
         ]
-        initial_image_name = str(references.get('initial_image', '') or '').strip()
+        legacy_initial_image_name = str(references.get('initial_image', '') or '').strip()
+        configured_stage_references = chained_prompt.get('stage_references')
+        if not isinstance(configured_stage_references, list):
+            configured_stage_references = []
+        stage_references = []
+        for stage_index in range(MINIMAX_H3_R2V_PANJANG_MAX_PROMPTS):
+            configured_stage = (
+                configured_stage_references[stage_index]
+                if stage_index < len(configured_stage_references)
+                else {}
+            )
+            configured_stage = configured_stage if isinstance(configured_stage, dict) else {}
+            normalized_stage = {}
+            for frame_key in ('first', 'last'):
+                frame = configured_stage.get(frame_key, {})
+                frame = frame if isinstance(frame, dict) else {}
+                source = str(frame.get('source', 'none') or 'none').strip().lower()
+                name = str(frame.get('name', '') or '').strip()
+                if source == 'scene' and not name:
+                    source = 'none'
+                if source not in {'none', 'scene', 'stage_last'}:
+                    write_log(
+                        f"Sumber frame {frame_key} R2V-Panjang Proses {stage_index + 1} "
+                        f"tidak dikenal: {source}"
+                    )
+                    return False
+                normalized_stage[frame_key] = {
+                    'source': source,
+                    'name': name,
+                    'stage': frame.get('stage'),
+                }
+            stage_references.append(normalized_stage)
+        # Projects created before per-process frame selectors used this field
+        # only for Process 1. Preserve that behavior as a compatibility
+        # fallback; new projects use stage_references exclusively.
+        if not configured_stage_references and legacy_initial_image_name:
+            stage_references[0]['first'] = {
+                'source': 'scene',
+                'name': legacy_initial_image_name,
+                'stage': None,
+            }
         audio_names = [
             str(value).strip()
             for value in references.get('audios', [])
@@ -1379,27 +1419,27 @@ def process_scene(scene_dir, server):
             write_log(
                 "minimax-h3_r2v-panjang maksimal memiliki "
                 f"{MINIMAX_H3_R2V_PANJANG_MAX_GLOBAL_IMAGE_REFERENCES} image reference global "
-                "karena satu slot image dicadangkan untuk frame proses sebelumnya "
-                "dalam total tujuh slot gambar."
-            )
-            return False
-        if initial_image_name and initial_image_name in image_names:
-            write_log(
-                "frame awal Proses 1 tidak boleh sama dengan reference gambar global R2V-Panjang"
+                "per proses."
             )
             return False
         if len(audio_names) > 3:
             write_log("minimax-h3_r2v-panjang maksimal memiliki 3 audio reference global")
             return False
-        if not image_names and not initial_image_name and not audio_names and not video_name:
+        explicit_frame_names = []
+        for stage_index in range(active_stage_count):
+            for frame_key in ('first', 'last'):
+                frame = stage_references[stage_index][frame_key]
+                if frame['source'] == 'scene' and frame['name']:
+                    explicit_frame_names.append(frame['name'])
+        if not image_names and not explicit_frame_names and not audio_names and not video_name:
             write_log(
-                "minimax-h3_r2v-panjang membutuhkan minimal satu reference image, initial image Proses 1, audio, atau video"
+                "minimax-h3_r2v-panjang membutuhkan minimal satu reference image, frame awal/akhir, audio, atau video"
             )
             return False
 
         reference_paths = [
             os.path.join(scene_dir, name)
-            for name in image_names + ([initial_image_name] if initial_image_name else []) + audio_names
+            for name in image_names + explicit_frame_names + audio_names
         ]
         if video_name:
             reference_paths.append(os.path.join(scene_dir, video_name))
@@ -1410,6 +1450,34 @@ def process_scene(scene_dir, server):
                 + ", ".join(os.path.basename(path) for path in missing[:3])
             )
             return False
+
+        for stage_index in range(active_stage_count):
+            stage_frames = [
+                frame['name']
+                for frame in stage_references[stage_index].values()
+                if isinstance(frame, dict) and frame.get('source') == 'scene' and frame.get('name')
+            ]
+            first_frame = stage_references[stage_index].get('first', {})
+            first_source = str(first_frame.get('source', 'none') or 'none').strip().lower()
+            automatic_first_count = int(stage_index > 0 and first_source == 'none')
+            stage_last_count = sum(
+                1
+                for frame_key in ('first', 'last')
+                if isinstance(stage_references[stage_index].get(frame_key), dict)
+                and str(stage_references[stage_index][frame_key].get('source', 'none') or 'none').strip().lower() == 'stage_last'
+            )
+            if len(image_names) + len(stage_frames) + automatic_first_count + stage_last_count > 7:
+                write_log(
+                    f"R2V-Panjang Proses {stage_index + 1} melebihi total 7 slot gambar; "
+                    "kurangi reference global atau frame awal/akhir."
+                )
+                return False
+            if set(image_names).intersection(stage_frames):
+                write_log(
+                    f"Reference gambar global dan frame Proses {stage_index + 1} "
+                    "tidak boleh memakai file yang sama."
+                )
+                return False
 
         if (
             bool(chained_prompt.get("fast_mode", False))
@@ -1483,34 +1551,51 @@ def process_scene(scene_dir, server):
             stage_prompt['positive_prompt'] = copy.deepcopy(raw_entry)
 
             stage_images = list(uploaded_images)
-            if stage_number == 1 and initial_image_name:
-                uploaded_initial_image = _upload_to_comfy(
-                    os.path.join(scene_dir, initial_image_name)
+            frame_picture_numbers = {'first': None, 'last': None}
+            stage_references_for_stage = stage_references[stage_index]
+            for frame_key in ('first', 'last'):
+                frame = stage_references_for_stage[frame_key]
+                frame_source = frame['source']
+                frame_path = None
+                if frame_source == 'scene':
+                    frame_path = os.path.join(scene_dir, frame['name'])
+                elif frame_source == 'stage_last':
+                    try:
+                        source_stage = int(frame.get('stage'))
+                    except (TypeError, ValueError):
+                        source_stage = stage_number - 1
+                    frame_path = generated_frames.get(source_stage)
+                elif frame_key == 'first' and stage_number > 1:
+                    # An empty first-frame selector on Process 2-4 means the
+                    # previous process's generated last frame.
+                    frame_path = generated_frames.get(stage_number - 1)
+                if frame_path:
+                    if not os.path.isfile(frame_path):
+                        write_log(
+                            f"Frame {frame_key} R2V-Panjang Proses {stage_number} "
+                            f"tidak ditemukan: {frame_path}"
+                        )
+                        return False
+                    uploaded_frame = _upload_to_comfy(frame_path)
+                    if not uploaded_frame:
+                        write_log(
+                            f"gagal upload frame {frame_key} R2V-Panjang Proses {stage_number}"
+                        )
+                        return False
+                    stage_images.append(uploaded_frame)
+                    frame_picture_numbers[frame_key] = len(stage_images)
+
+            if len(stage_images) > 7:
+                write_log(
+                    f"R2V-Panjang Proses {stage_number} mengirim {len(stage_images)} gambar; "
+                    "batas workflow adalah 7 Picture."
                 )
-                if not uploaded_initial_image:
-                    write_log(
-                        f"gagal upload image awal Proses 1 untuk R2V panjang {scene_dir}"
-                    )
-                    return False
-                stage_images.append(uploaded_initial_image)
-                stage_prompt['positive_prompt'] = ensure_ref2va_initial_frame_instructions(
-                    stage_prompt['positive_prompt'],
-                    len(stage_images),
-                )
-            elif stage_number > 1:
-                carry_frame = generated_frames.get(stage_number - 1)
-                if not carry_frame or not os.path.isfile(carry_frame):
-                    write_log(
-                        f"Frame terakhir Proses {stage_number - 1} diperlukan sebagai image tambahan Proses {stage_number}"
-                    )
-                    return False
-                uploaded_carry_frame = _upload_to_comfy(carry_frame)
-                if not uploaded_carry_frame:
-                    write_log(
-                        f"gagal upload frame terakhir Proses {stage_number - 1} untuk R2V panjang Proses {stage_number}"
-                    )
-                    return False
-                stage_images.append(uploaded_carry_frame)
+                return False
+            stage_prompt['positive_prompt'] = ensure_ref2va_frame_instructions(
+                stage_prompt['positive_prompt'],
+                first_picture_number=frame_picture_numbers['first'],
+                last_picture_number=frame_picture_numbers['last'],
+            )
 
             try:
                 r2v_workflow = build_minimax_h3_r2v_workflow(

@@ -2057,6 +2057,8 @@ class RuntimeTaskWorker(QObject):
 
 
 _ACTIVE_BACKGROUND_TASKS = set()
+THREAD_SHUTDOWN_GRACE_MS = 2000
+THREAD_TERMINATION_GRACE_MS = 1000
 
 
 class BackgroundTask(QObject):
@@ -2119,13 +2121,49 @@ class BackgroundTask(QObject):
 
 
 def shutdown_background_tasks():
-    """Drain in-flight I/O after the window closes, before destroying Qt objects."""
+    """Stop in-flight I/O without allowing application shutdown to hang forever."""
     tasks = list(_ACTIVE_BACKGROUND_TASKS)
     for task in tasks:
         task.cancel()
     for task in tasks:
-        task.worker_thread.wait()
+        _stop_qthread(
+            task.worker_thread,
+            "background task",
+        )
         _ACTIVE_BACKGROUND_TASKS.discard(task)
+
+
+def _stop_qthread(thread: QThread, label: str) -> bool:
+    """Request a QThread to stop, with a bounded fallback during shutdown.
+
+    Network/LLM calls running inside a worker do not necessarily observe
+    ``requestInterruption()`` or ``quit()`` until the blocking call returns.
+    Waiting without a timeout here can leave the closed UI process stuck in
+    ``futex_do_wait`` indefinitely.  A normal worker gets a grace period; the
+    last-resort termination is only used while the application is already
+    shutting down.
+    """
+    if thread is None or not thread.isRunning():
+        return True
+    thread.requestInterruption()
+    thread.quit()
+    if thread.wait(THREAD_SHUTDOWN_GRACE_MS):
+        return True
+
+    logging.getLogger(__name__).warning(
+        "QThread %s did not stop within %d ms; terminating during application shutdown.",
+        label,
+        THREAD_SHUTDOWN_GRACE_MS,
+    )
+    thread.terminate()
+    if thread.wait(THREAD_TERMINATION_GRACE_MS):
+        return True
+
+    logging.getLogger(__name__).error(
+        "QThread %s could not be stopped after termination request.",
+        label,
+    )
+    return False
 
 
 class GeminiImageModelCatalog(QObject):
@@ -11812,10 +11850,8 @@ def main():
         # QThread or deliver late results to widgets from a closed window.
         logging.getLogger().removeHandler(window._ui_log_handler)
         shutdown_background_tasks()
-        for thread in window.findChildren(QThread):
-            thread.requestInterruption()
-            thread.quit()
-            thread.wait()
+        for index, thread in enumerate(window.findChildren(QThread), start=1):
+            _stop_qthread(thread, f"UI thread #{index}")
     sys.exit(exit_code)
 
 

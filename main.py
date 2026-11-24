@@ -91,9 +91,11 @@ from prompt_localization import (
 )
 from minimax_h3.minimax_h3_prompt import (
     I2VA_FIRST_SHOT_VISUAL_EN,
+    I2VA_FIRST_FRAME_PREFIX,
     ensure_i2va_frame_instructions,
     ensure_ref2va_frame_instructions,
     validate_ref2va_prompt,
+    validate_ref2va_shot_contract,
     validate_i2va_frame_instructions,
 )
 from minimax_h3.minimax_h3_references import (
@@ -501,6 +503,8 @@ def _validate_minimax_h3_i2v_workflow_frame_contract(
     prompt_text = str(inputs.get("prompt", ""))
     if I2VA_FIRST_SHOT_VISUAL_EN.lower() not in prompt_text.lower():
         raise ValueError("Kalimat first frame I2VA tidak ditemukan pada prompt workflow.")
+    if I2VA_FIRST_FRAME_PREFIX.lower() not in prompt_text.lower():
+        raise ValueError("Alignment I2VA tidak ditemukan pada prompt workflow.")
     last_input = inputs.get("last_frame")
     if include_last_frame:
         expected = f"At {float(duration):.2f} seconds, <Picture 2> is the last frame of the video"
@@ -1518,6 +1522,9 @@ def process_scene(scene_dir, server):
                 )
                 return False
             prompt_errors = validate_ref2va_prompt(entry)
+            prompt_errors.extend(
+                validate_ref2va_shot_contract(entry, duration=scene_duration)
+            )
             if prompt_errors:
                 write_log(
                     f"Prompt MiniMax H3 R2V panjang ke-{validation_stage} tidak valid: "
@@ -1562,6 +1569,7 @@ def process_scene(scene_dir, server):
             return False
 
         remove_sound = bool(chained_prompt.get("remove_sound", False))
+        frame_guide_capability_checked = False
         for stage_index in range(run_start_stage - 1, active_stage_count):
             stage_number = stage_index + 1
             raw_entry = prompts[stage_index]
@@ -1572,6 +1580,7 @@ def process_scene(scene_dir, server):
             stage_prompt['positive_prompt'] = copy.deepcopy(raw_entry)
 
             stage_images = list(uploaded_images)
+            guide_images = []
             frame_picture_numbers = {'first': None, 'last': None}
             stage_references_for_stage = stage_references[stage_index]
             for frame_key in ('first', 'last'):
@@ -1605,6 +1614,14 @@ def process_scene(scene_dir, server):
                         return False
                     stage_images.append(uploaded_frame)
                     frame_picture_numbers[frame_key] = len(stage_images)
+                    guide_images.append({
+                        'image': uploaded_frame,
+                        'frame_idx': 0 if frame_key == 'first' else -1,
+                        'label': (
+                            f"R2V-Panjang Proses {stage_number} "
+                            f"{'Frame Awal' if frame_key == 'first' else 'Frame Akhir'}"
+                        ),
+                    })
 
             if len(stage_images) > 7:
                 write_log(
@@ -1618,6 +1635,23 @@ def process_scene(scene_dir, server):
                 last_picture_number=frame_picture_numbers['last'],
             )
 
+            if guide_images and not frame_guide_capability_checked:
+                try:
+                    object_info = comfyui_api.get_object_info(server, timeout=20)
+                except Exception as e:
+                    write_log(
+                        "Gagal memeriksa node MiniMaxH3AddGuide pada ComfyUI: "
+                        f"{e}"
+                    )
+                    return False
+                if "MiniMaxH3AddGuide" not in object_info:
+                    write_log(
+                        "ComfyUI tidak menyediakan node MiniMaxH3AddGuide. "
+                        "Perbarui ComfyUI sebelum menjalankan frame awal/akhir R2V-Panjang."
+                    )
+                    return False
+                frame_guide_capability_checked = True
+
             try:
                 r2v_workflow = build_minimax_h3_r2v_workflow(
                     stage_prompt,
@@ -1625,6 +1659,7 @@ def process_scene(scene_dir, server):
                     image_names=stage_images,
                     audio_names=uploaded_audios,
                     video_name=uploaded_video,
+                    guide_images=guide_images,
                     duration_override=scene_duration,
                     fps_override=stage_prompt.get('fps', 24),
                 )

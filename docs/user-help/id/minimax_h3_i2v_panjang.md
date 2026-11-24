@@ -188,6 +188,8 @@ Tekan `Buat Prompt` pada salah satu proses. Aplikasi akan membuat prompt secara 
 
 Setiap proses dikirim kepada Gemini dengan gambar yang tersedia sebagai konteks visual. Gemini menyusun alur perubahan berdasarkan frame yang dipilih, frame otomatis, atau instruksi adegan. Prompt proses berikutnya juga menerima konteks prompt proses sebelumnya agar kesinambungan adegan tetap terjaga. Instruksi frame dan penomoran Picture untuk workflow dibuat runtime, bukan disimpan dalam editor.
 
+I2V-Panjang tetap mengirim prompt dengan kontrak I2VA. Gambar awal dan gambar akhir dikirim sebagai input frame pada workflow. Prompt tidak menambahkan header alignment FL2VA; bila gambar akhir dipilih, hanya instruksi target pada shot terakhir yang dibuat saat runtime menggunakan durasi yang dipilih pengguna. Isi editor dan file pengaturan adegan tidak berubah.
+
 Gemini menggunakan `Deskripsi Adegan` dari tab `Meta`, pengaturan I2V, serta gambar yang tersedia pada setiap proses. Semua hasil hanya diterapkan setelah seluruh proses aktif berhasil dibuat dan divalidasi.
 
 Periksa kembali isi setiap editor, terutama kesesuaian bidikan, image awal, dan image akhir masing-masing proses.
@@ -225,6 +227,8 @@ Jika tiga proses aktif, video akhir merupakan gabungan video Proses 1, Proses 2,
 ## Menyimpan dan menjalankan adegan
 
 Tekan tombol simpan setelah selesai mengubah pengaturan, pilihan gambar, atau prompt.
+
+Jika ada pengaturan yang belum sesuai, nama scene pada daftar di sebelah kiri akan berubah menjadi merah. Arahkan mouse ke nama scene untuk melihat penjelasan masalahnya. Scene tetap dapat disimpan sehingga Anda dapat memperbaikinya nanti; scene tersebut baru dapat dijalankan setelah masalahnya selesai.
 
 Saat adegan dijalankan, aplikasi akan memeriksa durasi, pilihan gambar, prompt setiap proses aktif, pengaturan mode, dan koneksi ComfyUI sebelum memulai pembuatan video.
 

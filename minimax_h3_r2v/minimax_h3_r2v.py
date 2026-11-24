@@ -33,6 +33,7 @@ FAST_SHIFT_VIDEO = 12
 FAST_SHIFT_AUDIO = 3
 FAST_SPARSE_START_PERCENT = 0.0
 MAIN_NODE = "136"
+VIDEO_VAE_NODE = "119"
 PICTURE_1_NODE = "143"
 PICTURE_NODE_IDS = ("143", "144", "151", "163", "164", "168", "169")
 AUDIO_1_NODE = "153"
@@ -421,6 +422,98 @@ def _apply_steps(workflow: dict, prompt: dict) -> None:
     _set_input(workflow, "124", "steps", _steps_value(prompt))
 
 
+def _next_numeric_node_id(workflow: dict) -> int:
+    """Return an unused numeric node id for runtime-only graph additions."""
+    numeric_ids = []
+    for node_id in workflow:
+        try:
+            numeric_ids.append(int(str(node_id)))
+        except (TypeError, ValueError):
+            continue
+    return max(numeric_ids, default=0) + 1
+
+
+def _apply_frame_guides(workflow: dict, guide_images: list[dict] | None) -> None:
+    """Attach runtime MiniMax H3 frame guides to an R2V conditioning graph.
+
+    Ref2VA reference images remain connected to ``MiniMaxH3ReferenceToVideo``
+    so their ``<Picture N>`` labels stay visible to the prompt. The same
+    endpoint images are additionally attached through native
+    ``MiniMaxH3AddGuide`` nodes, which gives them an actual timeline position.
+    The guide conditioning is chained into ``BasicGuider`` while reusing the
+    latent and video VAE produced by the R2V node.
+
+    ``frame_idx=0`` anchors the first frame and ``frame_idx=-1`` anchors the
+    final frame. The negative final-frame index is resolved by ComfyUI from
+    the generated latent length, so the runtime does not need to duplicate the
+    model's 17k+5 frame-grid calculation here.
+    """
+    if not guide_images:
+        return
+
+    main_node = workflow.get(MAIN_NODE)
+    if not isinstance(main_node, dict):
+        raise ValueError("Workflow R2V tidak memiliki node ReferenceToVideo utama")
+
+    video_vae = workflow.get(VIDEO_VAE_NODE)
+    if not isinstance(video_vae, dict) or video_vae.get("class_type") != "VAELoader":
+        raise ValueError("Workflow R2V tidak memiliki VAE video untuk Add Guide")
+
+    basic_guider_id = next(
+        (
+            str(node_id)
+            for node_id, node in workflow.items()
+            if isinstance(node, dict) and node.get("class_type") == "BasicGuider"
+        ),
+        None,
+    )
+    if basic_guider_id is None:
+        raise ValueError("Workflow R2V tidak memiliki node BasicGuider")
+
+    basic_guider = workflow[basic_guider_id]
+    guider_inputs = basic_guider.get("inputs")
+    if not isinstance(guider_inputs, dict) or "conditioning" not in guider_inputs:
+        raise ValueError("Node BasicGuider R2V tidak memiliki input conditioning")
+
+    next_id = _next_numeric_node_id(workflow)
+    positive_link = [MAIN_NODE, 0]
+    latent_link = [MAIN_NODE, 1]
+    for guide_index, guide in enumerate(guide_images, start=1):
+        if not isinstance(guide, Mapping):
+            raise ValueError(f"Frame guide R2V ke-{guide_index} tidak valid")
+        image_name = str(guide.get("image") or "").strip()
+        if not image_name:
+            raise ValueError(f"Frame guide R2V ke-{guide_index} tidak memiliki gambar")
+        try:
+            frame_idx = int(guide.get("frame_idx"))
+        except (TypeError, ValueError):
+            raise ValueError(f"Frame index R2V ke-{guide_index} tidak valid") from None
+
+        load_node_id = str(next_id)
+        guide_node_id = str(next_id + 1)
+        next_id += 2
+        label = str(guide.get("label") or f"Frame Guide {guide_index}")
+        workflow[load_node_id] = {
+            "inputs": {"image": image_name},
+            "class_type": "LoadImage",
+            "_meta": {"title": label},
+        }
+        workflow[guide_node_id] = {
+            "inputs": {
+                "positive": positive_link,
+                "latent": latent_link,
+                "frame_idx": frame_idx,
+                "vae": [VIDEO_VAE_NODE, 0],
+                "image": [load_node_id, 0],
+            },
+            "class_type": "MiniMaxH3AddGuide",
+            "_meta": {"title": f"{label} - Add Guide"},
+        }
+        positive_link = [guide_node_id, 0]
+
+    guider_inputs["conditioning"] = positive_link
+
+
 def _apply_fast_h3_graph(workflow: dict) -> None:
     """Configure the FastH3 Ref2VA graph and bypass the H3 cache.
 
@@ -467,6 +560,7 @@ def build_workflow(
     image_names: list[str] | None = None,
     audio_names: list[str] | None = None,
     video_name: str | None = None,
+    guide_images: list[dict] | None = None,
     **remove_options,
 ) -> dict:
     """Return a configured R2V workflow in memory.
@@ -594,6 +688,7 @@ def build_workflow(
         )
     if not use_fast:
         _apply_steps(workflow, source)
+    _apply_frame_guides(workflow, guide_images)
     return _inject_random_noise_seed(workflow)
 
 
@@ -609,6 +704,7 @@ def build_minimax_h3_r2v_workflow(
     image_names: list[str] | None = None,
     audio_names: list[str] | None = None,
     video_name: str | None = None,
+    guide_images: list[dict] | None = None,
     **remove_options,
 ) -> dict:
     """Named adapter entry point matching the other MiniMax H3 modules."""
@@ -624,6 +720,7 @@ def build_minimax_h3_r2v_workflow(
         image_names=image_names,
         audio_names=audio_names,
         video_name=video_name,
+        guide_images=guide_images,
         **remove_options,
     )
 

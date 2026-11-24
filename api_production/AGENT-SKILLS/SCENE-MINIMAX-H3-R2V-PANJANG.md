@@ -29,13 +29,15 @@ Jangan menambahkan `id_new`, `id_old`, `en`, wrapper translasi, atau format prom
 
 `references.audios` maksimal tiga item dan `references.video` maksimal satu item. Token Audio dan Video juga mengikuti urutan array, bukan urutan abjad nama file.
 
-Jika frame awal terpilih atau otomatis tersedia, Picture tambahan setelah reference global diperlakukan sebagai referensi visual frame awal proses tersebut. Jika ada `N` gambar global, gunakan token `<Picture N+1>`. Jika frame akhir juga dipilih, gunakan Picture berikutnya sebagai referensi visual kondisi akhir. Anchor temporalnya ditambahkan runtime, bukan pada prompt authoring:
+Jika frame awal terpilih atau otomatis tersedia, Picture tambahan setelah reference global diperlakukan sebagai referensi visual frame awal proses tersebut. Jika ada `N` gambar global, gunakan token `<Picture N+1>`. Jika frame akhir juga dipilih, gunakan Picture berikutnya sebagai referensi visual kondisi akhir. Anchor temporalnya ditambahkan runtime, bukan pada prompt authoring. Selain instruksi `begins` dan `ends` pada salinan prompt runtime, gambar frame juga dipasang melalui node native `MiniMaxH3AddGuide`: frame awal pada `frame_idx=0` dan frame akhir pada `frame_idx=-1`. Guide dirangkai sebelum `BasicGuider`, sedangkan gambar yang sama tetap menjadi `ref_images` agar token Picture tetap dapat digunakan:
 
 ```text
 <Subject 1> is the man in the tech armor from <Picture 1> and also appears in <Picture N+1>.
 ```
 
 Prompt tidak perlu menjelaskan bahwa Picture tersebut berasal dari proses lain, dan tidak memakai object atau anchor first-frame I2VA pada JSON authoring.
+
+Pengaturan `Add Guide`, nomor frame, dan node runtime tidak disimpan ke JSON scene. Jika ComfyUI tidak menyediakan node `MiniMaxH3AddGuide`, proses harus dihentikan dengan pesan yang jelas karena frame tidak dapat dikunci melalui workflow native.
 
 Jika tidak ada frame awal pada Proses 1, jangan membuat kalimat pembuka yang menyatakan bahwa video dimulai tepat dari Picture tertentu. Jika tidak ada frame akhir, jangan menambahkan pernyataan bahwa video harus berakhir pada Picture tertentu.
 

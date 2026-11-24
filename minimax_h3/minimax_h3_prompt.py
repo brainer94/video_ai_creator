@@ -178,14 +178,21 @@ def ensure_ref2va_initial_frame_instructions(entry: dict, picture_number: int) -
 
     result = copy.deepcopy(result)
     picture = f"<Picture {picture_number}>"
-    subject_prefix = (
-        f"{picture} is the initial frame and visual reference for the entire video."
-    )
+    shots = result.get("shots")
+    first_shot = next(
+        (shot for shot in shots if isinstance(shot, dict)),
+        None,
+    ) if isinstance(shots, list) else None
+    # The serializer assigns shot markers from array order. Use the same
+    # positional contract here so an old/manual payload with a stale shot_id
+    # cannot make the runtime anchor point at a different shot marker.
+    first_shot_ref = "[Shot 1]"
+    subject_prefix = f"{picture} is the first frame of {first_shot_ref}."
     retention_prefix = (
-        f"{picture} (initial frame and composition): fully_preserved - preserve "
+        f"{picture} ({first_shot_ref} first frame): fully_preserved - preserve "
         "the appearance, pose, lighting, background, and framing."
     )
-    detail_prefix = f"The video begins exactly from {picture}."
+    detail_prefix = f"The shot begins from {picture}."
 
     def remove_initial_frame_sentence(value: object) -> str:
         text = str(value or "").strip()
@@ -194,7 +201,7 @@ def ensure_ref2va_initial_frame_instructions(entry: dict, picture_number: int) -
         # Remove the first initial-frame sentence so repeated saves or prompt
         # generations replace its Picture number instead of duplicating it.
         return re.sub(
-            r"^\s*<Picture\s+\d+>[^.\n]*initial frame[^.\n]*\.\s*",
+            r"^\s*<Picture\s+\d+>[^.\n]*(?:initial|first) frame[^.\n]*\.\s*",
             "",
             text,
             count=1,
@@ -208,12 +215,10 @@ def ensure_ref2va_initial_frame_instructions(entry: dict, picture_number: int) -
         part for part in (retention_prefix, remove_initial_frame_sentence(result.get("retention_analysis"))) if part
     ).strip()
 
-    shots = result.get("shots")
-    if isinstance(shots, list) and shots and isinstance(shots[0], dict):
-        first_shot = shots[0]
+    if isinstance(shots, list) and first_shot is not None:
         visual = str(first_shot.get("visual", "") or "").strip()
         visual = re.sub(
-            r"^\s*The video begins exactly from <Picture\s+\d+>\.\s*",
+            r"^\s*(?:The video begins exactly from|The shot begins from) <Picture\s+\d+>\.\s*",
             "",
             visual,
             count=1,
@@ -257,8 +262,12 @@ def ensure_ref2va_frame_instructions(
         patterns = (
             r"<Picture\s+\d+>\s+is\s+the\s+initial\s+frame\s+and\s+visual\s+reference\s+for\s+the\s+entire\s+video\.\s*",
             r"<Picture\s+\d+>\s+is\s+the\s+final\s+frame\s+and\s+visual\s+reference\s+for\s+the\s+entire\s+video\.\s*",
+            r"<Picture\s+\d+>\s+is\s+the\s+first\s+frame\s+of\s+\[[^\]]+\]\.\s*",
+            r"<Picture\s+\d+>\s+is\s+the\s+last\s+frame\s+of\s+\[[^\]]+\]\.\s*",
             r"<Picture\s+\d+>\s+\(initial\s+frame\s+and\s+composition\):\s*fully_preserved\s*-\s*preserve\s+the\s+appearance,\s+pose,\s+lighting,\s+background,\s+and\s+framing\.\s*",
             r"<Picture\s+\d+>\s+\(final\s+frame\s+and\s+composition\):\s*fully_preserved\s*-\s*preserve\s+the\s+appearance,\s+pose,\s+lighting,\s+background,\s+and\s+framing\.\s*",
+            r"<Picture\s+\d+>\s+\(\[[^\]]+\]\s+first\s+frame\):\s*fully_preserved\s*-\s*preserve\s+the\s+appearance,\s+pose,\s+lighting,\s+background,\s+and\s+framing\.\s*",
+            r"<Picture\s+\d+>\s+\(\[[^\]]+\]\s+last\s+frame\):\s*fully_preserved\s*-\s*preserve\s+the\s+appearance,\s+pose,\s+lighting,\s+background,\s+and\s+framing\.\s*",
         )
         for pattern in patterns:
             text = re.sub(pattern, "", text, flags=re.IGNORECASE)
@@ -285,6 +294,12 @@ def ensure_ref2va_frame_instructions(
             return ""
         text = re.sub(
             r"^\s*<Picture\s+\d+>\s+is\s+the\s+final\s+frame\s+and\s+visual\s+reference\s+for\s+the\s+entire\s+video\.\s*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"^\s*<Picture\s+\d+>\s+is\s+the\s+last\s+frame\s+of\s+\[[^\]]+\]\.\s*",
             "",
             text,
             flags=re.IGNORECASE,
@@ -319,19 +334,26 @@ def ensure_ref2va_frame_instructions(
             last_picture_number = None
     if last_picture_number is not None and last_picture_number > 0:
         picture = f"<Picture {last_picture_number}>"
+        shots = result.get("shots")
+        last_shot = next(
+            (shot for shot in reversed(shots) if isinstance(shot, dict)),
+            None,
+        ) if isinstance(shots, list) else None
+        valid_shot_count = sum(1 for shot in shots if isinstance(shot, dict)) if isinstance(shots, list) else 0
+        last_shot_ref = f"[Shot {valid_shot_count or 1}]"
         result["subject_definitions"] = " ".join(
             part
             for part in (
-                f"{picture} is the final frame and visual reference for the entire video.",
                 result.get("subject_definitions", ""),
+                f"{picture} is the last frame of {last_shot_ref}.",
             )
             if str(part).strip()
         ).strip()
         result["retention_analysis"] = " ".join(
             part
             for part in (
-                f"{picture} (final frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.",
                 result.get("retention_analysis", ""),
+                f"{picture} ({last_shot_ref} last frame): fully_preserved - preserve the appearance, pose, lighting, background, and framing.",
             )
             if str(part).strip()
         ).strip()
@@ -351,7 +373,7 @@ def ensure_ref2va_frame_instructions(
                 if visual and visual[-1] not in ".!?":
                     visual += "."
                 last_shot["visual"] = (
-                    f"{visual} The video ends exactly on <Picture {last_picture_number}>."
+                    f"{visual} The shot ends on <Picture {last_picture_number}>."
                 ).strip()
     return result
 
@@ -391,7 +413,7 @@ def remove_ref2va_initial_frame_instructions(entry: dict) -> dict:
     for key in ("subject_definitions", "retention_analysis"):
         text = str(result.get(key, "") or "").strip()
         result[key] = re.sub(
-            r"^\s*<Picture\s+\d+>[^.\n]*initial frame[^.\n]*\.\s*",
+            r"^\s*<Picture\s+\d+>[^.\n]*(?:initial|first) frame[^.\n]*\.\s*",
             "",
             text,
             count=1,
@@ -401,7 +423,7 @@ def remove_ref2va_initial_frame_instructions(entry: dict) -> dict:
     shots = result.get("shots")
     if isinstance(shots, list) and shots and isinstance(shots[0], dict):
         shots[0]["visual"] = re.sub(
-            r"^\s*The video begins exactly from <Picture\s+\d+>\.\s*",
+            r"^\s*(?:The video begins exactly from|The shot begins from) <Picture\s+\d+>\.\s*",
             "",
             str(shots[0].get("visual", "") or ""),
             count=1,
@@ -554,6 +576,81 @@ def validate_ref2va_prompt(value) -> list[str]:
     elif not isinstance(value.get("detailed_description"), str) or not value.get("detailed_description", "").strip():
         errors.append("Ref2VA.detailed_description atau Ref2VA.shots wajib diisi.")
     return errors
+
+
+def validate_ref2va_shot_contract(value: dict, duration: float | None = None) -> list[str]:
+    """Validate the positional shot contract used by the runtime serializer.
+
+    ``validate_ref2va_prompt`` validates the prompt fields, but historically
+    accepted arbitrary non-empty ``shot_id`` values and did not know the
+    scene duration. This helper is intentionally separate so callers can use
+    it for scene status/runtime preflight without making the authoring editor
+    reject a save operation.
+    """
+    value = unwrap_prompt_value(value)
+    if not isinstance(value, dict):
+        return []
+    shots = value.get("shots")
+    if not isinstance(shots, list) or not shots:
+        return []
+
+    errors: list[str] = []
+    valid_shots = [shot for shot in shots if isinstance(shot, dict)]
+    if len(valid_shots) != len(shots):
+        return errors
+
+    previous_end = None
+    for index, shot in enumerate(valid_shots, start=1):
+        expected_id = f"Shot {index}"
+        actual_id = str(shot.get("shot_id", "")).strip()
+        if actual_id != expected_id:
+            errors.append(
+                f"Ref2VA.shots[{index - 1}].shot_id harus {expected_id}, bukan {actual_id or '(kosong)'}.")
+
+        start = shot.get("start")
+        end = shot.get("end")
+        if not isinstance(start, Real) or isinstance(start, bool):
+            continue
+        if not isinstance(end, Real) or isinstance(end, bool):
+            continue
+        start_value = float(start)
+        end_value = float(end)
+        if index == 1 and abs(start_value) > 1e-6:
+            errors.append("Shot 1 Ref2VA harus dimulai pada 0.00 detik.")
+        if previous_end is not None and start_value < previous_end - 1e-6:
+            errors.append(f"Rentang waktu Shot {index} Ref2VA bertumpang tindih dengan shot sebelumnya.")
+        if end_value <= start_value:
+            previous_end = end_value
+            continue
+        if duration is not None:
+            try:
+                duration_value = float(duration)
+            except (TypeError, ValueError):
+                duration_value = None
+            if duration_value is not None:
+                if start_value < -1e-6 or start_value > duration_value + 1e-6:
+                    errors.append(
+                        f"Waktu mulai Shot {index} Ref2VA berada di luar durasi proses {duration_value:.2f} detik."
+                    )
+                if end_value > duration_value + 1e-6:
+                    errors.append(
+                        f"Waktu selesai Shot {index} melebihi durasi proses {duration_value:.2f} detik."
+                    )
+        previous_end = end_value
+
+    if duration is not None:
+        try:
+            duration_value = float(duration)
+        except (TypeError, ValueError):
+            duration_value = None
+        if duration_value is not None:
+            last_end = valid_shots[-1].get("end")
+            if isinstance(last_end, Real) and not isinstance(last_end, bool):
+                if abs(float(last_end) - duration_value) > 1e-6:
+                    errors.append(
+                        f"Timeline Ref2VA harus berakhir pada {duration_value:.2f} detik sesuai durasi proses."
+                    )
+    return list(dict.fromkeys(errors))
 
 
 def _ref2va_clock_to_seconds(minutes: str, seconds: str, milliseconds: str | None) -> float:

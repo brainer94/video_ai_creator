@@ -664,8 +664,9 @@ class PromptTranslator:
                 "Follow the per-process instructions and shot counts in the context. Keep the visual and narrative "
                 "continuity between the returned process prompts.\n"
                 f"{batch_initial_frame_rule} For every later process, use only the supplied initial-frame Picture "
-                "number and follow its exact Ref2VA opening sentences. Do not mention another process as the source "
-                "of that Picture and do not use the I2VA reference object or anchor.\n"
+                "number when describing the visual continuity. Do not add automatic first-frame or last-frame "
+                "sentences to the authoring object; runtime adds the canonical Ref2VA frame anchors. Do not mention "
+                "another process as the source of that Picture and do not use the I2VA reference object or anchor.\n"
                 "For every process, define every Subject with its source Picture or Pictures and state where that "
                 "Subject appears. For every later process, every Subject definition must explicitly include the exact "
                 "phrase `also appears in <Picture N>` using the initial-frame Picture number supplied in the context. "
@@ -697,9 +698,9 @@ class PromptTranslator:
                 "Use only the active reference tokens listed in the context; do not invent, rename, "
                 "or renumber Picture, Video, or Audio labels. Preserve technical tokens exactly.\n"
                 "If the context contains an R2V-Panjang INITIAL FRAME RULE, follow it exactly: "
-                "begin subject_definitions and retention_analysis with the supplied Picture sentence, "
-                "and begin the first shot visual with the supplied `The video begins exactly from <Picture N>.` sentence. "
-                "Continue those sentences with scene-specific details. Do not mention another process or use the I2VA reference object.\n"
+                "use the supplied Picture number when defining the referenced subject and visual continuity, "
+                "but do not add automatic first-frame or last-frame sentences to the authoring object. Runtime adds "
+                "the canonical Ref2VA frame entries and shot anchors. Do not mention another process or use the I2VA reference object.\n"
                 'Return JSON only in this shape: {"mode":"R2VA","style_opening":"...",'
                 '"subject_definitions":"...","summary":"...","retention_analysis":"...",'
                 '"shots":[{"shot_id":"Shot 1","start":0.0,"end":5.0,"visual":"...",'

@@ -26,7 +26,16 @@ Tombol `Buat Prompt` pada salah satu stage I2V-Panjang menghasilkan prompt untuk
 - Request diproses berurutan; hasil prompt stage sebelumnya diberikan sebagai konteks kesinambungan untuk stage berikutnya.
 - Hasil batch hanya disimpan setelah semua stage aktif berhasil divalidasi. Struktur JSON tetap memakai empat slot `prompts[]`.
 
-Aturan prompt I2V-Panjang mengikuti semantik FL2VA. Jika frame akhir dipilih, prompt perlu menjelaskan jalur visual konkret menuju kondisi gambar tersebut. Jika frame akhir tidak dipilih, prompt cukup menjelaskan alur visual yang diinginkan. Instruksi frame tidak disimpan pada prompt authoring dan ditambahkan hanya saat runtime.
+Aturan prompt I2V-Panjang tetap memakai kontrak I2VA. Jika frame akhir dipilih, prompt perlu menjelaskan jalur visual konkret menuju kondisi gambar tersebut. Jika frame akhir tidak dipilih, prompt cukup menjelaskan alur visual yang diinginkan. Instruksi frame tidak disimpan pada prompt authoring dan ditambahkan hanya saat runtime.
+
+Serializer runtime tetap memakai kontrak I2VA untuk setiap stage. Frame awal dan frame akhir dikirim melalui input gambar workflow; prompt tidak diberi header `How the reference pictures align with the target video`.
+
+- prompt tetap memiliki anchor I2VA `<Picture 1>` pada awal video;
+- jika frame akhir dipilih, kalimat target frame dibuat pada shot terakhir menggunakan durasi yang dipilih pengguna, misalnya `10.00` detik;
+- field `reference` dan kalimat target frame hanya dibuat pada salinan payload runtime;
+- penyesuaian jumlah frame internal ComfyUI tidak mengubah angka durasi yang ditulis pada prompt.
+
+JSON authoring tetap memakai `mode: "I2VA"` dan tidak menyimpan instruksi frame, sehingga editor pengguna tetap berisi deskripsi kreatif dan shot saja.
 
 ## Struktur prompt
 

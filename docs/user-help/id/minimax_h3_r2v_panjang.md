@@ -144,7 +144,7 @@ Contoh hubungan referensi dalam prompt kreatif:
 The woman walks across the room while the camera follows her movement and gradually reaches the composition shown in <Picture 4>.
 ```
 
-Kalimat yang menyatakan pembukaan dari frame awal, pemertahanan komposisi frame, dan pencapaian frame akhir ditambahkan otomatis saat runtime. Kalimat tersebut tidak perlu ditulis atau diedit pada editor prompt.
+Kalimat yang menyatakan pembukaan dari frame awal, pemertahanan komposisi frame, dan pencapaian frame akhir ditambahkan otomatis saat runtime. Selain kalimat tersebut, aplikasi memasang gambar frame melalui pengunci waktu bawaan ComfyUI: frame awal ditempatkan pada awal video dan frame akhir ditempatkan pada frame terakhir. Gambar yang sama tetap dikirim sebagai Picture agar dapat dirujuk oleh prompt. Kalimat dan pengunci waktu ini hanya berlaku saat proses dijalankan; tidak ditulis ke JSON dan tidak muncul sebagai field baru di editor prompt.
 
 Untuk Proses 2–4, frame carry otomatis juga menjadi Picture referensi. Jika terdapat dua gambar global dan frame awal proses dibiarkan `(Tanpa Gambar)`, frame carry menjadi `<Picture 3>`. Tidak perlu menulis bahwa gambar tersebut berasal dari proses sebelumnya; cukup gunakan `<Picture 3>` sebagai frame awal dan referensi visual proses tersebut.
 
@@ -372,6 +372,8 @@ Frame terakhir dari sebuah proses digunakan untuk menyambungkan proses berikutny
 ## Menyimpan dan menjalankan adegan
 
 Simpan adegan setelah selesai mengubah referensi, pengaturan, atau prompt.
+
+Jika ada pengaturan yang belum sesuai, nama scene pada daftar di sebelah kiri akan berubah menjadi merah. Arahkan mouse ke nama scene untuk melihat penjelasan masalahnya. Scene tetap dapat disimpan sehingga Anda dapat memperbaikinya nanti; scene tersebut baru dapat dijalankan setelah masalahnya selesai.
 
 Sebelum dijalankan, pastikan:
 

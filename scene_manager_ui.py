@@ -86,6 +86,7 @@ from minimax_h3.minimax_h3_prompt import (
     normalize_minimax_prompt_payload,
     parse_structured_response,
     validate_ref2va_prompt,
+    validate_ref2va_shot_contract,
     validate_ref2va_reference_tokens,
     validate_i2va_shot_timeline,
     validate_structured_prompt,
@@ -1312,6 +1313,11 @@ def _validate_minimax_h3_i2v_panjang_prompt(
     return issues
 
 
+def _is_status_only_scene_issue(issue: object) -> bool:
+    """Return whether an issue should color the scene but not block saving."""
+    return str(issue or "").strip().startswith("Peringatan timeline R2V-Panjang")
+
+
 def validate_scene_data(
     meta: dict,
     z_prompt: dict,
@@ -1491,10 +1497,23 @@ def validate_scene_data(
         for stage_index in range(run_start_stage - 1, active_count):
             entry = prompts[stage_index] if stage_index < len(prompts) else {}
             entry = unwrap_prompt_value(entry)
-            if not isinstance(entry, dict) or validate_ref2va_prompt(entry):
+            prompt_errors = validate_ref2va_prompt(entry) if isinstance(entry, dict) else [
+                "Prompt bukan object JSON."
+            ]
+            if prompt_errors:
                 issues.append(
                     f"Prompt positif MiniMax H3 R2V-Panjang proses {stage_index + 1} "
-                    "harus memiliki enam section Ref2VA yang valid."
+                    "harus memiliki enam section Ref2VA yang valid: "
+                    + "; ".join(dict.fromkeys(prompt_errors[:4]))
+                )
+            shot_contract_errors = (
+                validate_ref2va_shot_contract(entry, duration=duration_value)
+                if isinstance(entry, dict)
+                else []
+            )
+            for error in dict.fromkeys(shot_contract_errors):
+                issues.append(
+                    f"Peringatan timeline R2V-Panjang proses {stage_index + 1}: {error}"
                 )
         references = chained_payload.get("references", {}) if isinstance(chained_payload, dict) else {}
         references = references if isinstance(references, dict) else {}
@@ -9593,10 +9612,14 @@ class SceneEditorWindow(QMainWindow):
             minimax_h3_i2v_panjang_prompt=minimax_h3_i2v_panjang_prompt,
             minimax_h3_r2v_panjang_prompt=r2v_panjang_prompt,
         )
-        if issues and not silent:
+        save_blocking_issues = [
+            issue for issue in issues
+            if not _is_status_only_scene_issue(issue)
+        ]
+        if save_blocking_issues and not silent:
             reply = QMessageBox.question(
                 self, "Masalah Validasi",
-                "Adegan masih memiliki masalah:\n- " + "\n- ".join(issues) + "\n\nTetap simpan?",
+                "Adegan masih memiliki masalah:\n- " + "\n- ".join(save_blocking_issues) + "\n\nTetap simpan?",
                 QMessageBox.Yes | QMessageBox.No,
             )
             if reply != QMessageBox.Yes:

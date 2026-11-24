@@ -213,6 +213,8 @@ Kebutuhan prompt per `scene_type`:
   - reference image, audio, dan video dipilih sekali secara global untuk semua proses; maksimal enam gambar global dipakai, dengan batas total tujuh Picture per proses setelah frame awal dan frame akhir diperhitungkan
   - `stage_references[0..3]` menyimpan pilihan `first` dan `last` untuk setiap proses; pilihan frame scene ditambahkan setelah seluruh Picture global sesuai urutannya
   - jika `first.source` pada proses 2–4 adalah `none`, runtime otomatis menambahkan frame terakhir proses sebelumnya sebagai frame awal; frame otomatis tidak ditulis ke `references.images`
+  - frame awal/akhir yang tersedia juga dipasang sebagai guide timeline melalui node native `MiniMaxH3AddGuide` pada `frame_idx=0` dan `frame_idx=-1`; guide dirangkai ke `BasicGuider`, sedangkan gambar yang sama tetap dikirim sebagai `Picture` agar token prompt tetap valid
+  - instruksi `begins` dan `ends` tetap ditambahkan pada salinan prompt runtime; pengaturan guide tidak disimpan ke JSON authoring
   - setiap proses memakai prompt Ref2VA berbeda dari array `prompts` yang berisi tepat 4 prompt
   - `run_start_stage` dapat menjalankan ulang dari proses tertentu jika segment dan frame proses sebelumnya sudah tersedia
   - hasil semua proses digabung, lalu color match diterapkan pada video gabungan
@@ -1103,6 +1105,9 @@ Scene type: `minimax-h3_i2v-panjang`
 - `stage_references` tetap berisi `first` dan `last` untuk setiap stage; `source: "none"` valid dan diproses seperti dropdown `(Tanpa Gambar)`
 - jika `first.source` Proses 1 adalah `none`, runtime memakai gambar terbaru di root scene; pada proses berikutnya runtime memakai frame terakhir proses sebelumnya
 - jika `last.source` adalah `none`, runtime tidak menyisipkan frame akhir atau instruksi target akhir
+- serializer runtime tetap memakai kontrak I2VA; frame awal/akhir dikirim melalui input workflow dan header alignment FL2VA tidak ditambahkan ke prompt
+- anchor `Picture 1`, kalimat target frame, dan field `reference` hanya berada pada salinan prompt runtime; angka durasi pada kalimat target mengikuti durasi yang dipilih pengguna dan tidak mengikuti pembulatan frame internal
+- anchor runtime dan field `reference` tidak disimpan kembali ke `minimax_h3_i2v_panjang_prompt.json`
 - FastH3 I2V tetap menginjeksi `last_frame` secara dinamis pada setiap stage lanjutan; FastH3 memakai 8 step dan tidak memakai input Steps normal
 - setiap prompt lanjutan divalidasi secara runtime sebelum stage dijalankan
 - semua segment yang tersedia digabung berurutan menjadi `minimax_h3_i2v_panjang_final.mp4`, terlepas dari nilai `continuations` atau `run_start_stage`
@@ -1124,8 +1129,8 @@ Scene type: `minimax-h3_r2v-panjang`
 - `run_start_stage` hanya boleh melewati proses yang segment dan frame carry-nya sudah tersedia
 - setiap proses aktif memvalidasi prompt Ref2VA dan manifest token sebelum workflow dikirim
 - authoring hanya mengisi `style_opening` dan `shots[]`; `detailed_description` tidak ditulis manual pada JSON authoring
-- sebelum workflow dibuat, adapter menambahkan instruksi frame berdasarkan manifest aktif pada salinan payload saja: `<Picture N> is the initial frame and visual reference for the entire video.`, instruksi `fully_preserved` pada `retention_analysis`, dan `The video begins exactly from <Picture N>.` pada shot pertama jika frame awal tersedia
-- jika frame akhir tersedia, adapter menambahkan `<Picture M> is the final frame and visual reference for the entire video.`, instruksi `fully_preserved` final pada `retention_analysis`, dan `The video ends exactly on <Picture M>.` pada shot terakhir; semua instruksi tersebut tidak masuk JSON authoring atau UI
+- sebelum workflow dibuat, adapter menambahkan instruksi frame berdasarkan manifest aktif pada salinan payload saja: `<Picture N> is the first frame of [Shot 1].`, instruksi `fully_preserved` dengan label `[Shot 1] first frame`, dan `The shot begins from <Picture N>.` pada shot pertama jika frame awal tersedia
+- jika frame akhir tersedia, adapter menambahkan `<Picture M> is the last frame of [Shot N].`, instruksi `fully_preserved` dengan label `[Shot N] last frame`, dan `The shot ends on <Picture M>.` pada shot terakhir; semua instruksi tersebut tidak masuk JSON authoring atau UI
 - jika frame awal atau frame akhir tidak tersedia, instruksi anchor yang bersangkutan tidak boleh dibuat; pada proses 2–4, `first.source=none` tetap berarti frame carry otomatis dan nomor Picture-nya mengikuti manifest proses
 - frame awal dan frame akhir tetap merupakan reference Picture biasa: keduanya boleh dipakai pada `subject_definitions`, `retention_analysis`, dan visual shot untuk menjelaskan identitas, komposisi, detail visual, serta kesinambungan; peran temporalnya menambahkan anchor pembuka/target akhir
 - jangan membatasi frame awal hanya pada shot pertama atau frame akhir hanya pada penyebutan terakhir; namun shot pertama harus dimulai dari frame awal yang aktif dan shot terakhir harus mencapai frame akhir yang aktif

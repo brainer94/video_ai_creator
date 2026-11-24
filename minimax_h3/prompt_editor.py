@@ -30,9 +30,9 @@ from PySide6.QtWidgets import (
 
 from minimax_h3.minimax_h3_prompt import (
     REF2VA_SECTION_KEYS,
-    ensure_i2va_frame_instructions,
     parse_ref2va_detailed_description,
     serialize_ref2va_detailed_description,
+    strip_generated_frame_instructions,
     validate_i2va_shot_timeline,
     validate_ref2va_prompt,
     validate_ref2va_reference_tokens,
@@ -89,7 +89,11 @@ class MiniMaxPromptEditorWidget(QWidget):
         self.reference_manifest = reference_manifest if isinstance(reference_manifest, dict) else None
         self.scroll_enabled = bool(scroll_enabled)
         self.enable_ref2va_shot_cards = bool(enable_ref2va_shot_cards)
-        self._original_value = unwrap_prompt_value(value) if isinstance(value, dict) else {}
+        self._original_value = (
+            strip_generated_frame_instructions(value)
+            if isinstance(value, dict)
+            else {}
+        )
         self._shot_widgets: list[dict] = []
         self._result: dict | None = None
         self._building_editor = False
@@ -139,7 +143,11 @@ class MiniMaxPromptEditorWidget(QWidget):
             )
         if enable_ref2va_shot_cards is not None:
             self.enable_ref2va_shot_cards = bool(enable_ref2va_shot_cards)
-        self._original_value = copy.deepcopy(value) if isinstance(value, dict) else {}
+        self._original_value = (
+            strip_generated_frame_instructions(value)
+            if isinstance(value, dict)
+            else {}
+        )
         self._result = None
         self._shot_widgets = []
         self._set_editor_content()
@@ -183,16 +191,10 @@ class MiniMaxPromptEditorWidget(QWidget):
         layout = QVBoxLayout(container)
 
         if self.mode == "I2VA":
-            if self.include_last_frame:
-                message = (
-                    "I2VA dengan frame awal dan frame akhir aktif. "
-                    "Editor akan mempertahankan Picture 1 di awal dan Picture 2 di akhir."
-                )
-            else:
-                message = (
-                    "I2VA dimulai dari Picture 1 pada 0,00 detik. "
-                    "Kalimat teknis frame awal dibuat otomatis saat diterapkan."
-                )
+            message = (
+                "Prompt kreatif disusun di sini. Gambar referensi dan pengaturan "
+                "frame diterapkan otomatis saat adegan dijalankan."
+            )
             self.status_label.setText(message)
         else:
             self.status_label.setText(
@@ -488,17 +490,9 @@ class MiniMaxPromptEditorWidget(QWidget):
         result["overall_soundscape"] = self.overall_soundscape_input.toPlainText().strip()
         result["non_diegetic_music"] = self.non_diegetic_music_input.toPlainText().strip()
         if self.mode == "I2VA":
-            result["reference"] = {
-                "picture": "Picture 1",
-                "source": "[Shot 1]",
-                "time": 0.0,
-                "instruction": "fully referenced",
-            }
-            result = ensure_i2va_frame_instructions(
-                result,
-                self.duration,
-                include_last_frame=self.include_last_frame,
-            )
+            # The Picture 1/2 frame contract is runtime-only and is never
+            # exposed as an editable field or persisted in authoring JSON.
+            result.pop("reference", None)
         return result
 
     def _collect_shot_cards(self) -> list[dict]:

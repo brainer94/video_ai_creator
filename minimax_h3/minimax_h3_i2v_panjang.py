@@ -15,7 +15,7 @@ def build_default_stage_references() -> list[dict]:
     """Return the four per-process reference slots used by the UI/runtime."""
     return [
         {
-            "first": {"source": "scene", "name": ""},
+            "first": {"source": "none", "name": ""},
             "last": {"source": "none", "name": ""},
         }
         for _ in range(MAX_PROMPTS)

@@ -1,17 +1,19 @@
 # Scene minimax-h3_i2v-panjang
 
-Scene ini mengatur MiniMax H3 I2V berantai dengan maksimal empat stage. Setiap stage aktif wajib memiliki first frame dan last frame.
+Scene ini mengatur MiniMax H3 I2V berantai dengan maksimal empat stage. Setiap stage memiliki pilihan frame awal dan frame akhir yang bersifat opsional.
 
 ## Aturan scene
 
 - Scene memakai workflow MiniMax H3 I2VA pada setiap stage.
 - `continuations` bernilai `0` sampai `3`; stage aktif adalah `continuations + 1`.
 - `run_start_stage` menentukan stage pertama pada partial run.
-- Setiap stage aktif wajib memilih `first` dan `last` pada `stage_references`; `source: "none"` atau referensi kosong tidak valid.
-- Stage 1 tidak boleh memakai `stage_last` karena belum ada stage sebelumnya.
-- Frame pertama dan terakhir dikirim ke ComfyUI dalam urutan tersebut.
-- Prompt setiap stage mendeskripsikan transisi kontinu dari first frame menuju last frame.
-- FPS workflow `24`; durasi scene `0.0) sampai `15.0) detik dengan maksimal empat angka desimal.
+- `stage_references` memakai dropdown `first` dan `last` dengan pilihan `(Tanpa Gambar)` atau aset gambar scene.
+- Jika `first.source` Proses 1 adalah `none`, runtime memakai gambar terbaru di root scene sebagai frame awal.
+- Jika `first.source` Proses 2–4 adalah `none`, runtime otomatis memakai frame terakhir proses sebelumnya.
+- Jika `last.source` adalah `none`, runtime tidak mengirim frame akhir dan proses tidak memiliki target gambar akhir.
+- Jika tersedia, frame awal dikirim lebih dahulu lalu frame akhir ke ComfyUI.
+- Prompt setiap stage mendeskripsikan alur visual berdasarkan frame yang tersedia; instruksi temporal ditambahkan runtime.
+- FPS workflow `24`; durasi scene `0.0` sampai `15.0` detik dengan maksimal empat angka desimal.
 
 ## Pembuatan prompt melalui UI
 
@@ -19,12 +21,12 @@ Tombol `Buat Prompt` pada salah satu stage I2V-Panjang menghasilkan prompt untuk
 
 - Jika hanya satu instruksi pengguna yang diisi, instruksi tersebut dipakai sebagai arahan global untuk semua stage aktif.
 - Jika instruksi beberapa stage diisi, setiap stage memakai instruksinya sendiri.
-- Setiap stage dikirim ke LLM sebagai request multimodal terpisah dengan pasangan gambar stage tersebut.
-- Pada setiap request, `Picture 1` adalah first frame dan `Picture 2` adalah last frame lokal stage tersebut.
+- Setiap stage dikirim ke LLM sebagai request terpisah. Gambar yang tersedia dapat dilampirkan sebagai konteks visual.
+- Request tidak wajib memiliki dua lampiran: frame kosong tetap dipahami sebagai aturan runtime dan tidak menghambat penyusunan prompt.
 - Request diproses berurutan; hasil prompt stage sebelumnya diberikan sebagai konteks kesinambungan untuk stage berikutnya.
 - Hasil batch hanya disimpan setelah semua stage aktif berhasil divalidasi. Struktur JSON tetap memakai empat slot `prompts[]`.
 
-Aturan prompt I2V-Panjang mengikuti semantik first-to-last/FL2VA: prompt harus menjelaskan jalur visual konkret dari Picture 1 menuju Picture 2, dan shot terakhir harus mencapai kondisi Picture 2. Prompt tidak boleh memakai aturan subject mapping atau token carry milik R2V-Panjang.
+Aturan prompt I2V-Panjang mengikuti semantik FL2VA. Jika frame akhir dipilih, prompt perlu menjelaskan jalur visual konkret menuju kondisi gambar tersebut. Jika frame akhir tidak dipilih, prompt cukup menjelaskan alur visual yang diinginkan. Instruksi frame tidak disimpan pada prompt authoring dan ditambahkan hanya saat runtime.
 
 ## Struktur prompt
 
@@ -42,20 +44,21 @@ Root file `minimax_h3_i2v_panjang_prompt.json` tetap mempertahankan metadata dan
   ],
   "stage_references": [
     {
-      "first": {"source": "scene", "name": "awal.png"},
+      "first": {"source": "none", "name": ""},
       "last": {"source": "scene", "name": "akhir.png"}
     }
   ]
 }
 ```
 
-Setiap item `prompts[]` adalah object I2VA langsung dengan schema yang sama seperti `minimax_h3_i2v_prompt.json`. `prompts` dan `stage_references` selalu berisi empat item pada file runtime; validasi hanya memblokir stage aktif yang belum memiliki dua frame.
+Setiap item `prompts[]` adalah object I2VA langsung dengan schema yang sama seperti `minimax_h3_i2v_prompt.json`. `prompts` dan `stage_references` selalu berisi empat item pada file runtime. Bentuk JSON tidak berubah; nilai `source: "none"` ditafsirkan runtime sesuai nomor proses.
 
 ## Checklist
 
 - File JSON tersedia dan valid.
-- Stage aktif memiliki first frame dan last frame.
-- Setiap prompt stage aktif berupa object I2VA langsung dengan `reference`, `shots[]`, dan audio global.
+- Stage aktif memiliki prompt yang valid.
+- Pilihan frame awal dan frame akhir boleh `(Tanpa Gambar)`; frame awal proses lanjutan akan memakai frame carry otomatis.
+- Setiap prompt stage aktif berupa object I2VA langsung dengan prompt kreatif, `shots[]`, dan audio global; `reference` serta instruksi first/last frame dibuat runtime.
 - Referensi lokal benar-benar ada di folder scene.
-- Referensi `stage_last` menunjuk stage sebelumnya yang valid.
-- Tidak ada wrapper bahasa, `source: "none"`, atau `negative_prompt`.
+- Referensi `stage_last` dari JSON lama tetap dapat dibaca sebagai kompatibilitas.
+- Tidak ada wrapper bahasa, atau `negative_prompt`.

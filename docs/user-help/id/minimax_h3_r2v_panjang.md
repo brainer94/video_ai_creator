@@ -136,13 +136,15 @@ Contoh dengan dua gambar global, frame awal, dan frame akhir:
 <Picture 4> = frame akhir
 ```
 
-Contoh penggunaan dalam prompt:
+Contoh hubungan referensi dalam prompt kreatif:
 
 ```text
 <Subject 1> is the woman from <Picture 1> and also appears in <Picture 3> and <Picture 4>.
 <Picture 2> provides the room layout and lighting reference.
-The video begins exactly from <Picture 3>. The woman walks across the room while the camera follows her movement and gradually reaches the composition shown in <Picture 4>. The video ends exactly on <Picture 4>.
+The woman walks across the room while the camera follows her movement and gradually reaches the composition shown in <Picture 4>.
 ```
+
+Kalimat yang menyatakan pembukaan dari frame awal, pemertahanan komposisi frame, dan pencapaian frame akhir ditambahkan otomatis saat runtime. Kalimat tersebut tidak perlu ditulis atau diedit pada editor prompt.
 
 Untuk Proses 2–4, frame carry otomatis juga menjadi Picture referensi. Jika terdapat dua gambar global dan frame awal proses dibiarkan `(Tanpa Gambar)`, frame carry menjadi `<Picture 3>`. Tidak perlu menulis bahwa gambar tersebut berasal dari proses sebelumnya; cukup gunakan `<Picture 3>` sebagai frame awal dan referensi visual proses tersebut.
 

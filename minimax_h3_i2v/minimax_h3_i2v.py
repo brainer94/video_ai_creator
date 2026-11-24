@@ -5,7 +5,6 @@ import random
 import copy
 
 from minimax_h3.minimax_h3_prompt import (
-    I2VA_FIRST_SHOT_VISUAL_EN,
     default_structured_prompt,
     ensure_i2va_frame_instructions,
     serialize_structured_prompt,
@@ -56,7 +55,6 @@ SIZE_OPTIONS = [
 DEFAULT_H3_STEPS = 20
 
 _DEFAULT_I2VA_EN = default_structured_prompt("I2VA")
-_DEFAULT_I2VA_EN["shots"][0]["visual"] = I2VA_FIRST_SHOT_VISUAL_EN
 
 DEFAULT_PROMPT = {
     "prompt_instruction": "",

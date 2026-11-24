@@ -137,21 +137,42 @@ def resolve_long_i2v_prompt_images(
     stage_references: list[dict] | None,
     stage_number: int,
 ) -> list[str]:
-    """Return the required first-frame and last-frame paths in ComfyUI order."""
+    """Return available long-I2V frame paths in runtime order.
+
+    The explicit selectors remain optional in the JSON.  Process 1 falls back
+    to the newest root image when its first selector is empty, while later
+    processes fall back to the previous process's persisted last frame.  A
+    missing last selector is intentionally omitted, because it means that the
+    process has no fixed end-frame target.
+
+    This helper is also used by prompt authoring.  A carried frame that has
+    not been generated yet is therefore simply absent from the multimodal
+    request; runtime will resolve it when the chained process runs.
+    """
     stage = int(stage_number)
     configured = stage_references if isinstance(stage_references, list) else []
     if not configured:
         return []
     entry = configured[stage - 1] if 0 < stage <= len(configured) else {}
     entry = entry if isinstance(entry, dict) else {}
-    first = resolve_stage_reference_path(scene_dir, entry.get("first"), stage)
-    if not first:
-        return []
+    first_reference = entry.get("first") if isinstance(entry.get("first"), dict) else {}
+    first_source = str(first_reference.get("source", "none") or "none").strip().lower()
+    if first_source == "scene" and not str(first_reference.get("name", "") or "").strip():
+        first_source = "none"
+    first = resolve_stage_reference_path(scene_dir, first_reference, stage)
+    if not first and first_source in {"", "none"}:
+        if stage == 1:
+            first = find_latest_root_image(scene_dir)
+        else:
+            first = ensure_stage_last_frame(scene_dir, stage - 1)
+
     last_reference = entry.get("last") if isinstance(entry.get("last"), dict) else {}
     last_source = str(last_reference.get("source", "none") or "none").strip().lower()
-    if last_source in {"", "none"}:
-        return []
-    last = resolve_stage_reference_path(scene_dir, last_reference, stage)
-    if not last:
-        return []
-    return [first, last]
+    if last_source == "scene" and not str(last_reference.get("name", "") or "").strip():
+        last_source = "none"
+    last = (
+        resolve_stage_reference_path(scene_dir, last_reference, stage)
+        if last_source not in {"", "none"}
+        else None
+    )
+    return [path for path in (first, last) if path]

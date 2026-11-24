@@ -79,19 +79,14 @@ from minimax_h3_r2v.minimax_h3_r2v import (
     get_audio_duration as get_minimax_h3_s2v_audio_duration,
 )
 from minimax_h3.minimax_h3_prompt import (
-    ensure_i2va_frame_instructions,
-    ensure_ref2va_frame_instructions,
     ensure_ref2va_shot_text_defaults,
-    enforce_i2va_first_shot_visual,
     normalize_ref2va_authoring_prompt,
-    ensure_ref2va_subject_picture_continuity,
+    strip_generated_frame_instructions,
     validate_ref2va_subject_picture_mapping,
-    synchronize_i2va_frame_instructions,
     normalize_minimax_prompt_payload,
     parse_structured_response,
     validate_ref2va_prompt,
     validate_ref2va_reference_tokens,
-    validate_i2va_frame_instructions,
     validate_i2va_shot_timeline,
     validate_structured_prompt,
     unwrap_prompt_value,
@@ -101,6 +96,7 @@ from minimax_h3.prompt_editor import (
 )
 from minimax_h3.minimax_h3_skill import build_minimax_h3_common_guidance
 from minimax_h3.minimax_h3_references import (
+    ensure_stage_last_frame,
     find_latest_root_image,
     resolve_long_i2v_prompt_images,
 )
@@ -607,8 +603,26 @@ def write_prompt_json(path: Path, data: dict):
                 existing_data = json.load(f)
         except Exception:
             existing_data = None
+    data = strip_prompt_payload_frame_instructions(data)
     payload = prepare_prompt_payload_for_save(path.name, data, existing_data=existing_data)
     write_json(path, payload)
+
+
+def strip_prompt_payload_frame_instructions(payload: dict) -> dict:
+    """Keep automatic frame wording out of persisted prompt payloads."""
+    result = copy.deepcopy(payload) if isinstance(payload, dict) else {}
+    if isinstance(result.get("positive_prompt"), dict):
+        result["positive_prompt"] = strip_generated_frame_instructions(
+            result["positive_prompt"]
+        )
+    if isinstance(result.get("prompts"), list):
+        result["prompts"] = [
+            strip_generated_frame_instructions(entry)
+            if isinstance(entry, dict)
+            else entry
+            for entry in result["prompts"]
+        ]
+    return result
 
 
 def _normalize_prompt_text_for_ui(value) -> str:
@@ -1237,13 +1251,6 @@ def _validate_minimax_h3_i2v_panjang_prompt(
         entry = unwrap_prompt_value(entry)
         prompt_errors: list[str] = []
         prompt_errors.extend(validate_structured_prompt(entry, expected_mode="I2VA"))
-        prompt_errors.extend(
-            validate_i2va_frame_instructions(
-                entry,
-                duration_value,
-                include_last_frame=True,
-            )
-        )
         unique_prompt_errors = list(dict.fromkeys(error for error in prompt_errors if error))
         if unique_prompt_errors:
             issues.append(
@@ -1257,12 +1264,14 @@ def _validate_minimax_h3_i2v_panjang_prompt(
         first = stage_entry.get("first", {})
         first = first if isinstance(first, dict) else {}
         source = str(first.get("source", "none")).strip().lower()
+        if source == "scene" and not str(first.get("name", "")).strip():
+            source = "none"
         if source == "scene":
             name = str(first.get("name", "")).strip()
             if not name or not scene_dir or not (scene_dir / name).is_file():
                 issues.append(
-                    f"Image referensi awal Proses {stage_number} wajib dipilih "
-                    "dan harus ada di folder scene."
+                    f"Image referensi awal Proses {stage_number} tidak ditemukan "
+                    "di folder scene."
                 )
         elif source == "stage_last":
             try:
@@ -1271,18 +1280,20 @@ def _validate_minimax_h3_i2v_panjang_prompt(
                 source_stage = 0
             if source_stage < 1 or source_stage > stage_index:
                 issues.append(f"Sumber frame awal Proses {stage_number} tidak valid.")
-        else:
-            issues.append(f"Image referensi awal Proses {stage_number} wajib dipilih.")
+        elif source not in {"none", ""}:
+            issues.append(f"Sumber frame awal Proses {stage_number} tidak dikenal: {source}.")
 
         last = stage_entry.get("last", {})
         last = last if isinstance(last, dict) else {}
         last_source = str(last.get("source", "none")).strip().lower()
+        if last_source == "scene" and not str(last.get("name", "")).strip():
+            last_source = "none"
         if last_source == "scene":
             name = str(last.get("name", "")).strip()
             if not name or not scene_dir or not (scene_dir / name).is_file():
                 issues.append(
-                    f"Image referensi akhir Proses {stage_number} wajib dipilih "
-                    "dan harus ada di folder scene."
+                    f"Image referensi akhir Proses {stage_number} tidak ditemukan "
+                    "di folder scene."
                 )
         elif last_source == "stage_last":
             try:
@@ -1291,8 +1302,8 @@ def _validate_minimax_h3_i2v_panjang_prompt(
                 source_stage = 0
             if source_stage < 1 or source_stage > stage_index:
                 issues.append(f"Sumber frame akhir Proses {stage_number} tidak valid.")
-        else:
-            issues.append(f"Image referensi akhir Proses {stage_number} wajib dipilih.")
+        elif last_source not in {"none", ""}:
+            issues.append(f"Sumber frame akhir Proses {stage_number} tidak dikenal: {last_source}.")
 
     if scene_dir and not find_latest_asset(scene_dir, IMAGE_EXTS):
         issues.append(
@@ -1397,13 +1408,6 @@ def validate_scene_data(
         else:
             i2v_entry = unwrap_prompt_value(minimax_h3_i2v_prompt.get("positive_prompt", {}))
             i2v_errors = validate_structured_prompt(i2v_entry, expected_mode="I2VA")
-            i2v_errors.extend(
-                validate_i2va_frame_instructions(
-                    i2v_entry,
-                    duration_value,
-                    include_last_frame=False,
-                )
-            )
             i2v_errors = list(dict.fromkeys(error for error in i2v_errors if error))
             if i2v_errors:
                 issues.append("Prompt positif MiniMax H3 I2V tidak valid: " + "; ".join(i2v_errors[:4]))
@@ -5209,32 +5213,29 @@ class SceneEditorWindow(QMainWindow):
         self.minimax_h3_i2v_panjang_extra_rows = []
 
         def build_reference_box(stage_index, parent_layout, row):
-            reference_box = QGroupBox("Image Referensi")
-            reference_layout = QVBoxLayout(reference_box)
-            first_label = QLabel("Image awal (wajib)")
-            first_list = QListWidget()
-            first_list.setSelectionMode(QAbstractItemView.NoSelection)
-            first_list.setFixedHeight(120)
-            first_list.itemChanged.connect(
-                lambda _item, widget=first_list: self._limit_r2v_reference_selection(widget, 1)
+            first_label = QLabel(f"Frame Awal Proses {stage_index + 1} (opsional)")
+            first_list = QComboBox()
+            first_list.setEditable(False)
+            first_list.currentIndexChanged.connect(
+                self._on_i2v_panjang_references_changed
             )
-            last_label = QLabel("Image akhir (wajib)")
-            last_list = QListWidget()
-            last_list.setSelectionMode(QAbstractItemView.NoSelection)
-            last_list.setFixedHeight(120)
-            last_list.itemChanged.connect(
-                lambda _item, widget=last_list: self._limit_r2v_reference_selection(widget, 1)
+            last_label = QLabel(f"Frame Akhir Proses {stage_index + 1} (opsional)")
+            last_list = QComboBox()
+            last_list.setEditable(False)
+            last_list.currentIndexChanged.connect(
+                self._on_i2v_panjang_references_changed
             )
-            # Keep the reference panel identical on all four process tabs.
-            # Without a fixed vertical policy, pages 2-4 expand this group
-            # into their otherwise-unused page height.
-            reference_box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-            reference_layout.addWidget(first_label)
-            reference_layout.addWidget(first_list)
-            reference_layout.addWidget(last_label)
-            reference_layout.addWidget(last_list)
-            parent_layout.addWidget(reference_box, row, 0, 1, 4)
-            self.minimax_h3_i2v_panjang_ref_boxes.append(reference_box)
+            # Keep the reference controls in the same two-row dropdown layout
+            # used by R2V-Panjang. The empty option is intentional: runtime
+            # resolves it to the normal I2V fallback or the previous process
+            # frame, depending on the process number.
+            parent_layout.addWidget(first_label, row, 0)
+            parent_layout.addWidget(first_list, row, 1, 1, 3)
+            parent_layout.addWidget(last_label, row + 1, 0)
+            parent_layout.addWidget(last_list, row + 1, 1, 1, 3)
+            self.minimax_h3_i2v_panjang_ref_boxes.append(
+                (first_label, first_list, last_label, last_list)
+            )
             self.minimax_h3_i2v_panjang_first_ref_lists.append(first_list)
             self.minimax_h3_i2v_panjang_last_ref_lists.append(last_list)
 
@@ -5263,7 +5264,7 @@ class SceneEditorWindow(QMainWindow):
                 i2v_mode_layout.addWidget(self.minimax_h3_i2v_special_mode_input)
                 page_layout.addLayout(i2v_mode_layout, 4, 2)
                 build_reference_box(stage_index, page_layout, 5)
-                prompt_row = 6
+                prompt_row = 7
                 self.minimax_h3_i2v_panjang_continuations_label = QLabel("Jumlah lanjutan")
                 self.minimax_h3_i2v_panjang_run_start_label = QLabel("Run mulai dari tab")
                 page_layout.addWidget(
@@ -5282,10 +5283,10 @@ class SceneEditorWindow(QMainWindow):
                 i2v_prompt_actions.addStretch(1)
                 page_layout.addLayout(i2v_prompt_actions, prompt_row + 3, 1, 1, 3)
                 self.minimax_h3_i2v_h3_cache_group = self._steps_group(self.minimax_h3_i2v_h3_cache_inputs)
-                page_layout.addWidget(self.minimax_h3_i2v_panjang_continuations_label, 10, 0)
-                page_layout.addWidget(self.minimax_h3_i2v_panjang_continuations_input, 10, 1)
-                page_layout.addWidget(self.minimax_h3_i2v_panjang_run_start_label, 11, 0)
-                page_layout.addWidget(self.minimax_h3_i2v_panjang_run_start_input, 11, 1)
+                page_layout.addWidget(self.minimax_h3_i2v_panjang_continuations_label, 11, 0)
+                page_layout.addWidget(self.minimax_h3_i2v_panjang_continuations_input, 11, 1)
+                page_layout.addWidget(self.minimax_h3_i2v_panjang_run_start_label, 12, 0)
+                page_layout.addWidget(self.minimax_h3_i2v_panjang_run_start_input, 12, 1)
                 page_layout.addWidget(self.minimax_h3_i2v_h3_cache_group, 13, 0, 1, 4)
             else:
                 build_reference_box(stage_index, page_layout, 0)
@@ -5298,21 +5299,21 @@ class SceneEditorWindow(QMainWindow):
                         "",
                         handler=self._open_minimax_i2v_prompt_guide,
                     ),
-                    1, 0, 1, 4, Qt.AlignLeft,
+                    2, 0, 1, 4, Qt.AlignLeft,
                 )
                 page_layout.addWidget(
                     self.minimax_h3_i2v_panjang_editor_panels[stage_index - 1],
-                    2, 0, 1, 4,
+                    3, 0, 1, 4,
                 )
-                page_layout.addWidget(QLabel("Perintah kepada LLM"), 3, 0)
+                page_layout.addWidget(QLabel("Perintah kepada LLM"), 4, 0)
                 page_layout.addWidget(
                     self.minimax_h3_i2v_panjang_prompt_instruction_inputs[stage_index],
-                    3, 1, 1, 3,
+                    4, 1, 1, 3,
                 )
                 prompt_actions = QHBoxLayout()
                 prompt_actions.addWidget(generate_button)
                 prompt_actions.addStretch(1)
-                page_layout.addLayout(prompt_actions, 4, 1, 1, 3)
+                page_layout.addLayout(prompt_actions, 5, 1, 1, 3)
                 self.minimax_h3_i2v_panjang_extra_rows.append((prompt_input, generate_button))
             self.minimax_h3_i2v_panjang_stage_pages.append(page)
             self.minimax_h3_i2v_panjang_stage_tabs.addTab(page, f"Proses {stage_index + 1}")
@@ -5768,12 +5769,11 @@ class SceneEditorWindow(QMainWindow):
                 item = self.minimax_h3_i2v_panjang_run_start_input.model().item(option_index)
                 if item is not None:
                     item.setEnabled(stage_number <= continuation_count + 1)
-        for stage_index, ref_box in enumerate(self.minimax_h3_i2v_panjang_ref_boxes):
-            ref_box.setVisible(is_chained)
-            first_list = self.minimax_h3_i2v_panjang_first_ref_lists[stage_index]
-            last_list = self.minimax_h3_i2v_panjang_last_ref_lists[stage_index]
+        for stage_index, ref_controls in enumerate(self.minimax_h3_i2v_panjang_ref_boxes):
+            first_label, first_list, last_label, last_list = ref_controls
+            for control in ref_controls:
+                control.setVisible(is_chained)
             first_list.setEnabled(is_chained)
-            last_list.setVisible(is_chained)
             last_list.setEnabled(is_chained)
         for prompt_number, (prompt_input, button) in enumerate(
             self.minimax_h3_i2v_panjang_extra_rows,
@@ -5861,6 +5861,8 @@ class SceneEditorWindow(QMainWindow):
         return {"source": "none", "name": ""}
 
     def _minimax_h3_panjang_checked_reference(self, widget: QListWidget) -> dict:
+        if isinstance(widget, QComboBox):
+            return self._minimax_h3_panjang_reference_from_key(widget.currentData())
         for index in range(widget.count()):
             item = widget.item(index)
             if item.checkState() == Qt.Checked:
@@ -5869,6 +5871,16 @@ class SceneEditorWindow(QMainWindow):
 
     def _set_minimax_h3_panjang_reference_list(self, widget: QListWidget, choices: list[tuple[str, str]], selected: dict):
         selected_key = self._minimax_h3_panjang_reference_key(selected)
+        if isinstance(widget, QComboBox):
+            widget.blockSignals(True)
+            widget.clear()
+            widget.addItem("(Tanpa Gambar)", "")
+            for label, key in choices:
+                widget.addItem(label, key)
+            selected_index = widget.findData(selected_key)
+            widget.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+            widget.blockSignals(False)
+            return
         widget.blockSignals(True)
         widget.clear()
         for label, key in choices:
@@ -5905,34 +5917,20 @@ class SceneEditorWindow(QMainWindow):
             ]
         if not isinstance(configured, list):
             configured = []
-        latest_root_path = find_latest_root_image(scene_dir)
-        latest_root_name = Path(latest_root_path).name if latest_root_path else ""
-        has_current_selection = any(
-            isinstance(entry, dict)
-            and self._minimax_h3_panjang_reference_key(entry.get("first"))
-            for entry in configured
-        )
         for stage_index in range(MINIMAX_H3_I2V_PANJANG_MAX_PROMPTS):
             configured_entry = configured[stage_index] if stage_index < len(configured) else {}
             configured_entry = configured_entry if isinstance(configured_entry, dict) else {}
             first_selected = configured_entry.get("first", {})
             last_selected = configured_entry.get("last", {})
-            if not has_current_selection and stage_index == 0 and latest_root_name:
-                # Match the runtime legacy fallback: process 1 uses the
-                # newest root image by mtime, not the alphabetically last name.
-                first_selected = {"source": "scene", "name": latest_root_name}
-            elif not has_current_selection and stage_index > 0:
-                first_selected = {"source": "stage_last", "stage": stage_index, "name": ""}
+            # The UI follows R2V-Panjang: an empty selector is meaningful and
+            # is resolved by runtime. Keep legacy stage_last values readable,
+            # but show them as the new automatic empty choice.
+            if isinstance(first_selected, dict) and str(first_selected.get("source", "none")).strip().lower() == "stage_last":
+                first_selected = {"source": "none", "name": ""}
+            if isinstance(last_selected, dict) and str(last_selected.get("source", "none")).strip().lower() == "stage_last":
+                last_selected = {"source": "none", "name": ""}
             first_choices = [(name, f"scene|{name}") for name in image_names]
-            first_choices += [
-                (f"Frame terakhir Proses {source_stage}", f"stage_last|{source_stage}")
-                for source_stage in range(1, stage_index + 1)
-            ]
             last_choices = [(name, f"scene|{name}") for name in image_names]
-            last_choices += [
-                (f"Frame terakhir Proses {source_stage}", f"stage_last|{source_stage}")
-                for source_stage in range(1, stage_index + 1)
-            ]
             self._set_minimax_h3_panjang_reference_list(
                 self.minimax_h3_i2v_panjang_first_ref_lists[stage_index], first_choices, first_selected
             )
@@ -5944,25 +5942,13 @@ class SceneEditorWindow(QMainWindow):
 
     def gather_minimax_h3_i2v_panjang_stage_references(self) -> list[dict]:
         references = []
-        active_count = self.minimax_h3_i2v_panjang_continuations_input.value() + 1
-        try:
-            run_start_stage = int(
-                self.minimax_h3_i2v_panjang_run_start_input.currentData() or 1
-            )
-        except (TypeError, ValueError):
-            run_start_stage = 1
         for stage_index in range(MINIMAX_H3_I2V_PANJANG_MAX_PROMPTS):
             first = self._minimax_h3_panjang_checked_reference(
                 self.minimax_h3_i2v_panjang_first_ref_lists[stage_index]
             )
-            is_run_stage = run_start_stage <= stage_index + 1 <= active_count
-            if is_run_stage and first.get("source") == "none":
-                raise ValueError(f"Image referensi awal Proses {stage_index + 1} wajib dipilih.")
             last = self._minimax_h3_panjang_checked_reference(
                 self.minimax_h3_i2v_panjang_last_ref_lists[stage_index]
             )
-            if is_run_stage and last.get("source") == "none":
-                raise ValueError(f"Image referensi akhir Proses {stage_index + 1} wajib dipilih.")
             references.append({"first": first, "last": last})
         return references
 
@@ -7478,6 +7464,18 @@ class SceneEditorWindow(QMainWindow):
                 scene_dir / MINIMAX_H3_R2V_PANJANG_PROMPT_FILENAME,
                 DEFAULT_MINIMAX_H3_R2V_PANJANG_PROMPT,
             )
+            minimax_h3_i2v_prompt = strip_prompt_payload_frame_instructions(
+                minimax_h3_i2v_prompt
+            )
+            minimax_h3_i2v_panjang_prompt = strip_prompt_payload_frame_instructions(
+                minimax_h3_i2v_panjang_prompt
+            )
+            minimax_h3_r2v_prompt = strip_prompt_payload_frame_instructions(
+                minimax_h3_r2v_prompt
+            )
+            minimax_h3_r2v_panjang_prompt = strip_prompt_payload_frame_instructions(
+                minimax_h3_r2v_panjang_prompt
+            )
             scene_type = str(meta.get("scene_type", "i2v")).strip()
             if scene_type == MINIMAX_H3_I2V_PANJANG_SCENE_TYPE:
                 self._pending_minimax_h3_i2v_panjang_stage_references = copy.deepcopy(
@@ -8233,20 +8231,12 @@ class SceneEditorWindow(QMainWindow):
                 else {"steps": DEFAULT_MINIMAX_H3_I2V_STEPS}
             ),
         }
-        if (
-            scene_type in {
-                MINIMAX_H3_I2V_SCENE_TYPE,
-                MINIMAX_H3_I2V_PANJANG_SCENE_TYPE,
-            }
-            and (
-                scene_type != MINIMAX_H3_I2V_PANJANG_SCENE_TYPE
-                or run_start_stage == 1
-            )
-        ):
-            i2v_prompt["positive_prompt"] = ensure_i2va_frame_instructions(
-                i2v_prompt.get("positive_prompt", {}),
-                5.0,
-                include_last_frame=False,
+        if scene_type in {
+            MINIMAX_H3_I2V_SCENE_TYPE,
+            MINIMAX_H3_I2V_PANJANG_SCENE_TYPE,
+        }:
+            i2v_prompt["positive_prompt"] = strip_generated_frame_instructions(
+                i2v_prompt.get("positive_prompt", {})
             )
         return t2v_prompt, i2v_prompt
 
@@ -8390,15 +8380,7 @@ class SceneEditorWindow(QMainWindow):
             stage_number = stage_index + 1
             if not run_start_stage <= stage_number <= active_count:
                 continue
-            prompts[stage_index] = ensure_i2va_frame_instructions(
-                prompts[stage_index],
-                prompt_duration,
-                include_last_frame=True,
-            )
-            # Frame configuration is metadata, not a creative prompt edit.
-            # Keep all three prompt representations synchronized so runtime
-            # prompt generation is not triggered by first/last-frame changes.
-            prompts[stage_index] = synchronize_i2va_frame_instructions(
+            prompts[stage_index] = strip_generated_frame_instructions(
                 prompts[stage_index]
             )
             normalized_prompt = unwrap_prompt_value(prompts[stage_index])
@@ -9297,6 +9279,12 @@ class SceneEditorWindow(QMainWindow):
         self._refresh_minimax_prompt_editor_panels()
         self.refresh_scene_status()
 
+    def _on_i2v_panjang_references_changed(self, *_args):
+        if self.loading_scene:
+            return
+        self._refresh_minimax_prompt_editor_panels()
+        self.refresh_scene_status()
+
     def refresh_r2v_panjang_reference_options(self, preferred: dict | None = None):
         scene_dir = self.current_scene_dir
         if not scene_dir or not scene_dir.exists():
@@ -9461,11 +9449,7 @@ class SceneEditorWindow(QMainWindow):
                 preserved_entry = copy.deepcopy(old_entry) if isinstance(old_entry, dict) else {}
                 manifest = self._r2v_panjang_reference_manifest_for_stage(stage_index)
                 if preserved_entry:
-                    preserved_entry = ensure_ref2va_frame_instructions(
-                        preserved_entry,
-                        first_picture_number=manifest.get("first_picture"),
-                        last_picture_number=manifest.get("last_picture"),
-                    )
+                    preserved_entry = strip_generated_frame_instructions(preserved_entry)
                 prompts.append(preserved_entry)
                 continue
             current_value = self._prompt_editor_value_from_backing(prompt_input)
@@ -9479,12 +9463,7 @@ class SceneEditorWindow(QMainWindow):
                     f"Prompt MiniMax H3 R2V-Panjang proses {stage_number} harus berupa object."
                 )
             entry["mode"] = "R2VA"
-            manifest = self._r2v_panjang_reference_manifest_for_stage(stage_index)
-            entry = ensure_ref2va_frame_instructions(
-                entry,
-                first_picture_number=manifest.get("first_picture"),
-                last_picture_number=manifest.get("last_picture"),
-            )
+            entry = strip_generated_frame_instructions(entry)
             prompts.append(entry)
         size = self.minimax_h3_r2v_panjang_size_input.currentData() or (368, 640)
         try:
@@ -10094,18 +10073,18 @@ class SceneEditorWindow(QMainWindow):
             lines.extend([
                 "Target: MiniMax H3 I2V-Panjang FL2VA positive prompt" if is_i2v_panjang else "Target: MiniMax H3 I2VA positive prompt",
                 "Active MiniMax H3 mode: I2VA",
-                "I2VA format: use the required `reference` object and encode the audiovisual timeline in the `shots` array, plus `overall_soundscape` and `non_diegetic_music`.",
+                "I2VA format: encode the audiovisual timeline in the `shots` array, plus `overall_soundscape` and `non_diegetic_music`. The runtime adds the reference and frame contract; do not include a `reference` object in the authoring response.",
                 "Do not create an `integrated_multimodal_description` JSON key; it is only the semantic description represented by `shots`.",
                 f"Scene duration: {self._duration_text() or '10'}",
                 f"MiniMax H3 I2V size: {int(size_data[0])}x{int(size_data[1])}",
             ])
             if is_i2v_panjang:
                 lines.extend([
-                    "I2V-Panjang FL2VA: this is one independent chained process with exactly two attached images.",
+                    "I2V-Panjang FL2VA: this is one independent chained process. The first-frame and last-frame selectors are optional.",
                     f"Current process number: {process_number}.",
-                    "<Picture 1> is the exact initial frame at 0.00 seconds; <Picture 2> is the exact final frame at the end of this process.",
-                    "Describe a concrete continuous path from Picture 1 to Picture 2. The final shot must arrive at the state shown by Picture 2.",
-                    "Do not mention another process, previous process, or process transition in the creative prompt. Treat Picture 1 and Picture 2 as the only frame anchors for this process.",
+                    "The runtime resolves an empty first-frame selector to the newest scene image for Process 1, or to the previous process last frame for later processes. An empty last-frame selector means there is no fixed final image.",
+                    "Attached images are visual context only. Do not write frame-control sentences, Picture-number alignment, or a `reference` object; the runtime adds the actual first-frame instruction and optional last-frame instruction.",
+                    "Do not mention another process, previous process, or process transition in the creative prompt. Describe the visual action naturally from the available frame context.",
                 ])
             lines.extend(self._minimax_h3_prompt_reference_lines("i2v", scene_type=scene_type))
         elif prompt_kind == "minimax_h3_s2v":
@@ -10177,8 +10156,7 @@ class SceneEditorWindow(QMainWindow):
                 "Active MiniMax H3 mode: Ref2VA",
                 "STRICT REFERENCE RULE: use only the active Picture, Video, and Audio tokens listed below; never invent, rename, or renumber them.",
                 "REFERENCE ROLE RULE: Every active Picture is a normal visual reference and may be used in subject_definitions, retention_analysis, summary, and shot visual/action/camera text when it provides useful identity, composition, environment, lighting, or continuity information.",
-                "A first-frame or final-frame Picture has both roles: it remains a normal visual reference and also acts as a temporal anchor. Do not restrict it to only the first or last shot.",
-                "The first shot must begin from the active first-frame Picture when one exists, and the last shot must reach the active final-frame Picture when one exists.",
+                "A selected first-frame or final-frame Picture remains a normal visual reference. The runtime applies its temporal role; do not write automatic initial-frame or final-frame headers, retention clauses, or begin/end sentences into the authoring object.",
                 f"Active image references: {', '.join(f'<Picture {i + 1}>' for i, _ in enumerate(references['images'])) or '(none)'}",
                 f"Active video reference: {'<Video 1>' if references['video'] else '(none)'}",
                 f"Active audio references: {', '.join(f'<Audio {i + 1}>' for i, _ in enumerate(references['audios'])) or '(none)'}",
@@ -10199,8 +10177,8 @@ class SceneEditorWindow(QMainWindow):
                     "R2V-Panjang BATCH: generate one connected prompt object for every process from Process 1 through the target process.",
                     f"Target process count: {stage_number}.",
                     "Return one prompt object per process in the `prompts` array, in numeric process order.",
-                    "For every process, use the exact first-frame and final-frame Picture numbers specified below; do not invent or renumber them.",
-                    "For every process, treat its first-frame and final-frame Picture as normal visual references as well as temporal anchors. Use them to explain Subject identity, composition, environment, lighting, and continuity wherever relevant.",
+                    "For every process, use the exact Picture numbers specified below when referring to the attached references; do not invent or renumber them.",
+                    "For every process, treat its first-frame and final-frame Picture as normal visual references. Use them to explain Subject identity, composition, environment, lighting, and continuity wherever relevant. Do not write automatic frame-control sentences; the runtime adds those after authoring.",
                     "SUBJECT REFERENCE RULE: In every process, define every Subject with its source Picture or Pictures and state in which Picture references that Subject appears.",
                     "Use one complete sentence per Subject, for example: `<Subject 1> is the man in the tech armor from <Picture 1> and also appears in <Picture 4>.`",
                     "Keep Subject IDs stable across all returned process objects and preserve the source Picture mapping from the global references.",
@@ -10214,20 +10192,20 @@ class SceneEditorWindow(QMainWindow):
                     frame_rules = []
                     if batch_manifest.get("first_picture"):
                         frame_rules.append(
-                            f"first frame is <Picture {batch_manifest['first_picture']}>"
+                            f"runtime first-frame reference is <Picture {batch_manifest['first_picture']}>"
                         )
                     elif batch_stage_number == 1:
-                        frame_rules.append("there is no explicit first-frame Picture")
+                        frame_rules.append("there is no explicit first-frame Picture in this process")
                     else:
                         frame_rules.append(
-                            "first frame is the automatically supplied last frame of the previous process"
+                            "the runtime will supply the previous process last frame as the first-frame reference"
                         )
                     if batch_manifest.get("last_picture"):
                         frame_rules.append(
-                            f"last frame is <Picture {batch_manifest['last_picture']}>"
+                            f"runtime final-frame reference is <Picture {batch_manifest['last_picture']}>"
                         )
                     else:
-                        frame_rules.append("there is no explicit final-frame Picture")
+                        frame_rules.append("there is no explicit final-frame Picture in this process")
                     first_reference = batch_manifest.get("first_reference", {})
                     last_reference = batch_manifest.get("last_reference", {})
                     if (
@@ -10241,7 +10219,7 @@ class SceneEditorWindow(QMainWindow):
                         )
                     elif batch_manifest.get("automatic_first"):
                         frame_rules.append(
-                            f"<Picture {batch_manifest['first_picture']}> is the automatically supplied "
+                            f"<Picture {batch_manifest['first_picture']}> is the runtime-supplied "
                             "last frame of the previous process; it is not attached during authoring"
                         )
                     if (
@@ -10261,30 +10239,21 @@ class SceneEditorWindow(QMainWindow):
             elif is_r2v_panjang and references.get("first_picture"):
                 initial_picture_number = int(references["first_picture"])
                 lines.extend([
-                    "INITIAL FRAME RULE: This R2V-Panjang process begins from the selected or automatically supplied initial-frame Picture listed below.",
-                    f"The initial-frame Picture is <Picture {initial_picture_number}>.",
-                    f"The `subject_definitions` field must begin exactly with: `<Picture {initial_picture_number}> is the initial frame and visual reference for the entire video.`",
-                    f"The `retention_analysis` field must begin exactly with: `<Picture {initial_picture_number}> (initial frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.`",
-                    f"The first shot visual must begin exactly with: `The video begins exactly from <Picture {initial_picture_number}>.`",
+                    f"This process has runtime first-frame reference <Picture {initial_picture_number}>. It remains a normal visual reference while the runtime applies the temporal role; do not add automatic initial-frame headers or first-shot sentences to the authoring prompt.",
                     "Define every Subject with its source Picture or Pictures and state where that Subject appears.",
                     f"Every Subject definition must contain `from <Picture N>` and `also appears in <Picture {initial_picture_number}>` when the Subject is present in the initial frame.",
                     "Do not use the I2VA reference object or I2VA alignment anchor.",
                 ])
             elif is_r2v_panjang:
                 lines.extend([
-                    "INITIAL FRAME RULE: This R2V-Panjang process has no explicit first-frame image.",
-                    "For Process 1, treat all active global Pictures as reference assets only and do not say that the video begins exactly from any Picture. For later processes this state means the last frame of the previous process will be supplied automatically.",
+                    "This process has no explicitly selected first-frame image. Treat active global Pictures as normal reference assets. For later processes, the runtime may supply the previous process last frame automatically; do not add an automatic initial-frame sentence to the authoring prompt.",
                     "Define every Subject with its source Picture or Pictures and state in which Picture references that Subject appears. Use one complete sentence such as `<Subject 1> is the man in the tech armor from <Picture 1> and appears in <Picture 1>.` Keep Subject IDs stable.",
                     "Do not use the I2VA reference object or I2VA alignment anchor.",
                 ])
             if is_r2v_panjang and references.get("last_picture"):
                 final_picture_number = int(references["last_picture"])
                 lines.extend([
-                    "FINAL FRAME RULE: This R2V-Panjang process has a selected final-frame Picture.",
-                    f"The final-frame Picture is <Picture {final_picture_number}>.",
-                    f"The `subject_definitions` field must include: `<Picture {final_picture_number}> is the final frame and visual reference for the entire video.`",
-                    f"The `retention_analysis` field must include: `<Picture {final_picture_number}> (final frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.`",
-                    f"The last shot visual must end exactly with: `The video ends exactly on <Picture {final_picture_number}>.`",
+                    f"This process has runtime final-frame reference <Picture {final_picture_number}>. Use it as a normal visual reference when describing the intended ending, but do not add automatic final-frame headers, retention clauses, or last-shot sentences to the authoring prompt.",
                     "Define every Subject with its source Picture or Pictures and state where that Subject appears.",
                     f"When a Subject is visible in the final frame, include `also appears in <Picture {final_picture_number}>` in the same complete Subject sentence; do not add a separate duplicate Subject sentence.",
                 ])
@@ -10410,7 +10379,7 @@ class SceneEditorWindow(QMainWindow):
         write_json(path, payload)
 
     def _resolve_minimax_prompt_image_paths(self, prompt_kind: str) -> list[Path] | None:
-        """Resolve exactly the image files used by the corresponding workflow."""
+        """Resolve the image files available for the corresponding prompt request."""
         if not self.current_scene_dir:
             return None
         scene_dir = Path(self.current_scene_dir).resolve()
@@ -10431,18 +10400,24 @@ class SceneEditorWindow(QMainWindow):
                 references = self.gather_minimax_h3_i2v_panjang_stage_references()
                 paths = resolve_long_i2v_prompt_images(scene_dir, references, stage_number)
                 expected = references[stage_number - 1] if 0 < stage_number <= len(references) else {}
-                if not paths:
+                # Empty selectors are valid. An explicit asset selection must
+                # still be checked so a stale JSON entry is not silently
+                # omitted from the multimodal request.
+                for reference_kind in ("first", "last"):
+                    reference = expected.get(reference_kind, {}) if isinstance(expected, dict) else {}
+                    source = str(reference.get("source", "none") or "none").strip().lower()
+                    name = str(reference.get("name", "") or "").strip()
+                    if source == "scene" and name and not (scene_dir / name).is_file():
+                        raise ValueError(
+                            f"Referensi {reference_kind} Proses {stage_number} tidak ditemukan: {name or '-'}"
+                        )
+                first_reference = expected.get("first", {}) if isinstance(expected, dict) else {}
+                first_source = str(first_reference.get("source", "none") or "none").strip().lower()
+                if first_source == "scene" and not str(first_reference.get("name", "") or "").strip():
+                    first_source = "none"
+                if stage_number == 1 and first_source in {"", "none"} and not paths:
                     raise ValueError(
-                        f"Referensi first/last frame Proses {stage_number} belum tersedia; "
-                        "LLM harus menerima gambar yang sama dengan ComfyUI."
-                    )
-                # A configured last reference must resolve to a second image;
-                # an unresolved selected reference must never be silently dropped.
-                last_reference = expected.get("last", {}) if isinstance(expected, dict) else {}
-                last_source = str(last_reference.get("source", "none") or "none").strip().lower()
-                if last_source not in {"", "none"} and len(paths) < 2:
-                    raise ValueError(
-                        f"Last frame referensi Proses {stage_number} belum tersedia."
+                        "I2V-Panjang membutuhkan minimal satu gambar lokal untuk fallback frame awal Proses 1."
                     )
             except (ValueError, IndexError) as exc:
                 QMessageBox.warning(self, "Referensi Tidak Tersedia", str(exc))
@@ -10744,16 +10719,7 @@ class SceneEditorWindow(QMainWindow):
                 continue
             entry["mode"] = "R2VA"
             entry = ensure_ref2va_shot_text_defaults(entry)
-            entry = ensure_ref2va_frame_instructions(
-                entry,
-                first_picture_number=first_frame_picture,
-                last_picture_number=final_frame_picture,
-            )
-            if first_frame_picture:
-                entry = ensure_ref2va_subject_picture_continuity(
-                    entry,
-                    first_frame_picture,
-                )
+            entry = strip_generated_frame_instructions(entry)
             entries.append(entry)
             prompt_errors = validate_ref2va_prompt(entry)
             prompt_errors.extend(
@@ -10841,21 +10807,8 @@ class SceneEditorWindow(QMainWindow):
             entry, entry_errors = parse_structured_response(structured, expected_mode="I2VA")
             entry_errors = list(entry_errors or [])
             if isinstance(entry, dict):
-                entry = enforce_i2va_first_shot_visual(entry)
-                entry = ensure_i2va_frame_instructions(
-                    entry,
-                    duration,
-                    include_last_frame=True,
-                )
-                entry = synchronize_i2va_frame_instructions(entry)
+                entry = strip_generated_frame_instructions(entry)
                 entry_errors.extend(validate_structured_prompt(entry, expected_mode="I2VA"))
-                entry_errors.extend(
-                    validate_i2va_frame_instructions(
-                        entry,
-                        duration,
-                        include_last_frame=True,
-                    )
-                )
                 entry_errors.extend(validate_i2va_shot_timeline(entry, duration))
             else:
                 entry = {}
@@ -11095,24 +11048,7 @@ class SceneEditorWindow(QMainWindow):
                     if isinstance(entry, dict):
                         entry["mode"] = "R2VA"
                         entry = ensure_ref2va_shot_text_defaults(entry)
-                        if prompt_kind.startswith("minimax_h3_r2v_panjang_"):
-                            try:
-                                stage_number = int(prompt_kind.rsplit("_", 1)[1])
-                            except (TypeError, ValueError):
-                                stage_number = 1
-                            manifest = self._r2v_panjang_reference_manifest_for_stage(
-                                max(0, stage_number - 1)
-                            )
-                            entry = ensure_ref2va_frame_instructions(
-                                entry,
-                                first_picture_number=manifest.get("first_picture"),
-                                last_picture_number=manifest.get("last_picture"),
-                            )
-                            if manifest.get("first_picture"):
-                                entry = ensure_ref2va_subject_picture_continuity(
-                                    entry,
-                                    manifest["first_picture"],
-                                )
+                        entry = strip_generated_frame_instructions(entry)
                 errors.extend(validate_ref2va_prompt(entry))
                 if not errors and prompt_kind.startswith("minimax_h3_r2v_panjang_"):
                     try:
@@ -11160,17 +11096,7 @@ class SceneEditorWindow(QMainWindow):
                 expected_mode = "I2VA" if prompt_kind != "minimax_h3_t2v" else "T2VA"
                 entry, errors = parse_structured_response(structured, expected_mode=expected_mode)
                 if not errors and expected_mode == "I2VA":
-                    entry = enforce_i2va_first_shot_visual(entry)
-                    if prompt_kind.startswith("minimax_h3_i2v_panjang_"):
-                        try:
-                            frame_end_time = float(self.parse_duration_value())
-                        except (TypeError, ValueError):
-                            frame_end_time = 5.0
-                        entry = ensure_i2va_frame_instructions(
-                            entry,
-                            frame_end_time,
-                            include_last_frame=True,
-                        )
+                    entry = strip_generated_frame_instructions(entry)
             if errors:
                 self.append_log("[gagal] Response nested MiniMax tidak valid: " + "; ".join(errors[:3]))
                 self.statusBar().showMessage("Format JSON MiniMax tidak sesuai.", 4000)
@@ -11359,11 +11285,9 @@ class SceneEditorWindow(QMainWindow):
     def generate_minimax_h3_i2v_panjang_prompt_from_ui(self, prompt_index: int):
         """Generate prompts for every active I2V-Panjang process in one action.
 
-        Each process is sent to Gemini as its own multimodal request because
-        Picture 1/Picture 2 numbering is local to that process. Requests run
-        sequentially in one worker so later processes can receive the prior
-        generated prompt as continuity context without mixing their image
-        attachments.
+        Each process is sent to Gemini as its own request. Available selected
+        images are attached for visual context, while empty frame selectors
+        remain runtime rules and do not block prompt authoring.
         """
         try:
             active_process_count = int(self.minimax_h3_i2v_panjang_continuations_input.value()) + 1
@@ -11413,13 +11337,6 @@ class SceneEditorWindow(QMainWindow):
             image_paths = self._resolve_minimax_prompt_image_paths(stage_prompt_kind)
             if image_paths is None:
                 return
-            if len(image_paths) != 2:
-                QMessageBox.warning(
-                    self,
-                    "Referensi I2V-Panjang Tidak Lengkap",
-                    f"Proses {stage_number} harus mengirim tepat dua gambar: Image Awal dan Image Akhir.",
-                )
-                return
 
             context_text = self._build_prompt_generation_context(
                 stage_prompt_kind,
@@ -11429,12 +11346,15 @@ class SceneEditorWindow(QMainWindow):
             context_text += (
                 "\nI2V-PANJANG BATCH: buat prompt hanya untuk proses ini, "
                 f"yaitu Proses {stage_number} dari {target_stage}. "
-                "Setiap proses memiliki penomoran Picture lokal yang selalu dimulai ulang dari Picture 1.\n"
-                "ATTACHED IMAGE ORDER IS AUTHORITATIVE:\n"
-                f"<Picture 1> = {Path(image_paths[0]).name} (Image Awal, frame pertama proses ini).\n"
-                f"<Picture 2> = {Path(image_paths[1]).name} (Image Akhir, frame terakhir proses ini).\n"
-                "Jangan menukar, menghilangkan, atau menambah Picture. "
-                "Jangan menyebut proses lain; jelaskan alur visual proses ini secara mandiri dari Picture 1 menuju Picture 2."
+                "Nomor Picture pada prompt runtime ditentukan setelah seluruh frame proses tersedia.\n"
+                "RUNTIME FRAME RULES: frame awal dan frame akhir boleh kosong. "
+                "Jika frame awal Proses 1 kosong, runtime memakai gambar terbaru di folder scene. "
+                "Jika frame awal Proses 2–4 kosong, runtime memakai frame terakhir proses sebelumnya. "
+                "Jika frame akhir kosong, tidak ada target frame akhir.\n"
+                "Gambar yang terlampir hanya digunakan untuk memahami tampilan visual. "
+                "Jangan menulis kalimat kontrol frame, object `reference`, atau token Picture buatan sendiri; "
+                "runtime menambahkan instruksi frame yang sesuai. "
+                "Jangan menyebut proses lain; jelaskan alur visual proses ini secara mandiri."
             )
             requests.append({
                 "prompt_kind": stage_prompt_kind,

@@ -7,11 +7,11 @@ description: Menulis prompt MiniMax H3 I2VA dengan satu gambar sebagai first fra
 
 Gunakan mode `I2VA`. Prompt disimpan langsung dalam bahasa Inggris pada `positive_prompt`. Prompt wajib memiliki anchor berikut pada awal hasil serialisasi:
 
+`<Picture 1>` adalah gambar referensi aktual dan merupakan kondisi visual persis pada frame pertama. Kalimat alignment di bawah ini hanya muncul pada prompt runtime, bukan pada JSON authoring:
+
 ```text
 For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.
 ```
-
-`<Picture 1>` adalah gambar referensi aktual dan merupakan kondisi visual persis pada frame pertama.
 
 ## Struktur JSON
 
@@ -19,12 +19,6 @@ For the target video, at 0.00 seconds into the target video, <Picture 1> (from [
 {
   "positive_prompt": {
     "mode": "I2VA",
-    "reference": {
-      "picture": "Picture 1",
-      "source": "[Shot 1]",
-      "time": 0.0,
-      "instruction": "fully referenced"
-    },
     "shots": [
       {
         "shot_id": "Shot 1",
@@ -43,12 +37,12 @@ For the target video, at 0.00 seconds into the target video, <Picture 1> (from [
 }
 ```
 
-`shots` minimal satu item. Setiap item wajib memiliki delapan field yang sama dengan T2VA. `reference` harus persis memetakan `Picture 1` ke `[Shot 1]` pada `0.0`.
+`shots` minimal satu item. Setiap item wajib memiliki delapan field yang sama dengan T2VA. Field `reference` tidak ditulis pada JSON authoring; runtime membuatnya untuk memetakan `Picture 1` ke `[Shot 1]` pada `0.0`.
 
 ## Cara menulis prompt
 
 1. Mulai `Shot 1` dari komposisi, subjek, pakaian, warna, objek penting, pencahayaan, dan layout yang terlihat pada `<Picture 1>`.
-2. Tegaskan bahwa `<Picture 1>` adalah exact first frame pada `0.00` detik.
+2. Gunakan `<Picture 1>` sebagai dasar visual Shot 1. Peran first frame dan kalimat alignment ditambahkan oleh runtime, bukan ditulis dalam prompt authoring.
 3. Kembangkan gerakan secara kontinu menuju akhir video dan pertahankan identitas, komposisi, pakaian, objek, pencahayaan, serta hubungan ruang.
 4. Jelaskan aksi, kamera, dialog, suara diegetik, ambience, dan musik sesuai timeline.
 

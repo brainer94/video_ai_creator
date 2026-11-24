@@ -53,7 +53,7 @@ Jangan membuat key `id_new`, `id_old`, atau `en` dan jangan menambahkan `negativ
 ## Aturan I2VA
 
 - `mode` harus `I2VA`.
-- `reference` harus persis memetakan `Picture 1` ke `[Shot 1]) pada `0.0`.
+- JSON authoring tidak menyimpan `reference`; runtime membuat pemetaan `Picture 1` ke `[Shot 1]` pada `0.0`.
 - `shots[]` memakai struktur yang sama dengan T2VA.
 - Hasil serialisasi harus dimulai dengan:
 

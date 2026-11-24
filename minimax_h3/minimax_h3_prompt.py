@@ -100,6 +100,64 @@ def synchronize_i2va_frame_instructions(entry: dict) -> dict:
     return unwrap_prompt_value(entry) if isinstance(entry, dict) else {}
 
 
+def _strip_i2va_generated_frame_text(value: object) -> str:
+    """Remove frame sentences that are owned by the runtime, not the author."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    patterns = (
+        re.escape(I2VA_FIRST_SHOT_VISUAL_EN) + r"\.?\s*",
+        re.escape(I2VA_FIRST_FRAME_DETAIL_INSTRUCTION) + r"\s*",
+        r"At\s+\d+(?:\.\d+)?\s+seconds,\s*<Picture\s+\d+>\s+is\s+the\s+last\s+frame\s+of\s+the\s+video\.?\s*",
+        r"The\s+video\s+begins\s+exactly\s+from\s+<Picture\s+\d+>\.?\s*",
+        r"The\s+video\s+ends\s+exactly\s+on\s+<Picture\s+\d+>\.?\s*",
+    )
+    for pattern in patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
+def strip_generated_frame_instructions(entry: dict) -> dict:
+    """Return authoring data without automatic first/last-frame wording.
+
+    Frame selectors remain scene metadata (for example ``stage_references``),
+    while the prompt editor and prompt JSON contain only creative content.  The
+    runtime calls the inverse ``ensure_*`` helpers on a deep copy immediately
+    before serializing a ComfyUI workflow.
+    """
+    result = unwrap_prompt_value(entry)
+    if not isinstance(result, dict):
+        return {}
+    result = copy.deepcopy(result)
+    mode = str(result.get("mode", "")).upper()
+    if mode == "I2VA" or "reference" in result:
+        result.pop("reference", None)
+        shots = result.get("shots")
+        if isinstance(shots, list):
+            for shot in shots:
+                if isinstance(shot, dict):
+                    shot["visual"] = _strip_i2va_generated_frame_text(shot.get("visual"))
+        return result
+
+    if mode == "R2VA" or "subject_definitions" in result or "style_opening" in result:
+        # This helper already removes the generated Ref2VA headers and the
+        # first/last-shot sentences when no picture number is supplied.
+        result = ensure_ref2va_frame_instructions(
+            result,
+            first_picture_number=None,
+            last_picture_number=None,
+        )
+        if isinstance(result.get("shots"), list):
+            for shot in result["shots"]:
+                if isinstance(shot, dict):
+                    shot["visual"] = _strip_i2va_generated_frame_text(shot.get("visual"))
+        if isinstance(result.get("detailed_description"), str):
+            result["detailed_description"] = _strip_i2va_generated_frame_text(
+                result["detailed_description"]
+            )
+    return result
+
+
 def ensure_ref2va_initial_frame_instructions(entry: dict, picture_number: int) -> dict:
     """Make a Ref2VA prompt identify its active Picture as the initial frame.
 
@@ -815,13 +873,6 @@ def empty_structured_prompt(mode: str) -> dict:
         "overall_soundscape": "",
         "non_diegetic_music": "",
     }
-    if mode == "I2VA":
-        value["reference"] = {
-            "picture": "Picture 1",
-            "source": "[Shot 1]",
-            "time": 0.0,
-            "instruction": "fully referenced",
-        }
     return value
 
 
@@ -838,11 +889,7 @@ def default_structured_prompt(mode: str, language: str = "en") -> dict:
         "shot_id": "Shot 1",
         "start": 0.0,
         "end": 5.0,
-        "visual": (
-            f"{I2VA_FIRST_FRAME_DETAIL_INSTRUCTION} {visual}"
-            if str(mode).upper() == "I2VA"
-            else visual
-        ),
+        "visual": visual,
         "action": action,
         "camera": camera,
         "dialogue": dialogue,
@@ -878,10 +925,17 @@ def enforce_i2va_first_shot_visual(entry: dict) -> dict:
 
 
 def ensure_i2va_frame_instructions(entry: dict, end_time: float, include_last_frame: bool = False) -> dict:
-    """Repair the mandatory English first/last-frame sentences."""
+    """Add the I2VA frame contract to a runtime-only prompt copy."""
     result = unwrap_prompt_value(entry)
     if not isinstance(result, dict):
         return {}
+    result = strip_generated_frame_instructions(result)
+    result["reference"] = {
+        "picture": "Picture 1",
+        "source": "[Shot 1]",
+        "time": 0.0,
+        "instruction": "fully referenced",
+    }
     shots = result.get("shots")
     if not isinstance(shots, list):
         return result
@@ -1038,17 +1092,18 @@ def validate_structured_prompt(value, expected_mode: str | None = None) -> list[
             errors.append(f"positive_prompt.{key} wajib berupa string tidak kosong.")
     if mode == "I2VA":
         reference = value.get("reference")
-        if not isinstance(reference, dict):
-            errors.append("I2VA wajib memiliki positive_prompt.reference.")
-        else:
-            if reference.get("picture") != "Picture 1":
-                errors.append("I2VA reference.picture harus Picture 1.")
-            if reference.get("source") != "[Shot 1]":
-                errors.append("I2VA reference.source harus [Shot 1].")
-            if reference.get("time") != 0.0:
-                errors.append("I2VA reference.time harus 0.0.")
-            if reference.get("instruction") != "fully referenced":
-                errors.append("I2VA reference.instruction tidak valid.")
+        if reference is not None:
+            if not isinstance(reference, dict):
+                errors.append("I2VA positive_prompt.reference harus berupa object jika ada.")
+            else:
+                if reference.get("picture") != "Picture 1":
+                    errors.append("I2VA reference.picture harus Picture 1.")
+                if reference.get("source") != "[Shot 1]":
+                    errors.append("I2VA reference.source harus [Shot 1].")
+                if reference.get("time") != 0.0:
+                    errors.append("I2VA reference.time harus 0.0.")
+                if reference.get("instruction") != "fully referenced":
+                    errors.append("I2VA reference.instruction tidak valid.")
     elif "reference" in value:
         errors.append("T2VA tidak boleh memiliki field reference.")
     return errors

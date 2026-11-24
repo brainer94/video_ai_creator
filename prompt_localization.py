@@ -730,25 +730,34 @@ class PromptTranslator:
                 "Use at least two shots when the scene has multiple actions. Do not return a text prompt instead of the object.\n"
             )
             if "Active MiniMax H3 mode: I2VA" in active_mode:
-                output_shape = (
-                    '{"mode":"I2VA","reference":{"picture":"Picture 1",'
-                    '"source":"[Shot 1]","time":0.0,"instruction":"fully referenced"},'
-                    '"shots":[{"shot_id":"Shot 1","start":0.0,"end":1.0,'
-                    '"visual":"...","action":"...","camera":"...",'
-                    '"dialogue":"...","diegetic_sound":"..."}],'
-                    '"overall_soundscape":"...","non_diegetic_music":"..."}'
-                )
-                mode_instruction += (
-                    "This is I2VA. The object must additionally contain reference with picture Picture 1, source [Shot 1], time 0.0, and instruction fully referenced.\n"
-                    "The reference object is structural metadata; do not replace it with a text alignment field or an integrated_multimodal_description key.\n"
-                )
                 if is_i2v_panjang:
+                    output_shape = (
+                        '{"mode":"I2VA","shots":[{"shot_id":"Shot 1",'
+                        '"start":0.0,"end":1.0,"visual":"...","action":"...",'
+                        '"camera":"...","dialogue":"...",'
+                        '"diegetic_sound":"..."}],"overall_soundscape":"...",'
+                        '"non_diegetic_music":"..."}'
+                    )
                     mode_instruction += (
-                        "This is one I2V-Panjang process using first-and-last-frame semantics. "
-                        "<Picture 1> is the exact initial frame at 0.00 seconds and <Picture 2> is the exact final frame at the end of this process. "
-                        "Describe a concrete, continuous visual path from Picture 1 to Picture 2; do not merely describe two static images. "
-                        "The final shot must naturally reach and preserve the state shown by Picture 2. "
+                        "This is one I2V-Panjang process with optional first-frame and last-frame selectors. "
+                        "The runtime resolves empty selectors: Process 1 uses the newest scene image as its initial frame, "
+                        "later processes use the previous process last frame, and an empty last selector has no fixed end-frame target. "
+                        "Do not return a reference object, frame-control sentences, or invented Picture-number alignment in the authoring object. "
+                        "Use any attached images only as visual context and describe a concrete continuous visual path. "
                         "Do not mention another process, previous process, or process transition in the creative prompt.\n"
+                    )
+                else:
+                    output_shape = (
+                        '{"mode":"I2VA","reference":{"picture":"Picture 1",'
+                        '"source":"[Shot 1]","time":0.0,"instruction":"fully referenced"},'
+                        '"shots":[{"shot_id":"Shot 1","start":0.0,"end":1.0,'
+                        '"visual":"...","action":"...","camera":"...",'
+                        '"dialogue":"...","diegetic_sound":"..."}],'
+                        '"overall_soundscape":"...","non_diegetic_music":"..."}'
+                    )
+                    mode_instruction += (
+                        "This is I2VA. The object must additionally contain reference with picture Picture 1, source [Shot 1], time 0.0, and instruction fully referenced.\n"
+                        "The reference object is structural metadata; do not replace it with a text alignment field or an integrated_multimodal_description key.\n"
                     )
             elif "Active MiniMax H3 mode: T2VA" in active_mode:
                 output_shape = (
@@ -857,16 +866,17 @@ class PromptTranslator:
             if expected_mode == "I2VA":
                 # The reference object is a structural control field, not
                 # creative text. Some LLM responses omit it despite the
-                # schema instruction, so restore the exact skill contract
-                # deterministically before validation.
+                # schema instruction, so restore it for standalone I2VA only.
+                # I2V-Panjang keeps all frame controls runtime-only.
                 raw_en = copy.deepcopy(raw_en)
                 raw_en["mode"] = "I2VA"
-                raw_en["reference"] = {
-                    "picture": "Picture 1",
-                    "source": "[Shot 1]",
-                    "time": 0.0,
-                    "instruction": "fully referenced",
-                }
+                if not is_i2v_panjang:
+                    raw_en["reference"] = {
+                        "picture": "Picture 1",
+                        "source": "[Shot 1]",
+                        "time": 0.0,
+                        "instruction": "fully referenced",
+                    }
             _, errors = parse_structured_response(raw_en, expected_mode=expected_mode)
             if errors:
                 raise RuntimeError("Response MiniMax tidak valid: " + "; ".join(errors[:3]))

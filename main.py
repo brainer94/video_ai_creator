@@ -1032,6 +1032,11 @@ def process_scene(scene_dir, server):
             if isinstance(value, dict):
                 source = str(value.get('source', 'none')).strip().lower()
                 name = str(value.get('name', '')).strip()
+                if source == 'scene' and not name:
+                    # Early I2V-Panjang defaults used an empty scene source
+                    # for the first selector. Treat it like the new empty
+                    # dropdown option instead of rejecting the fallback.
+                    source = 'none'
                 try:
                     source_stage = int(value.get('stage', stage_number - 1))
                 except (TypeError, ValueError):
@@ -1086,8 +1091,27 @@ def process_scene(scene_dir, server):
         def _validate_reference(reference, stage_number, kind):
             source = str(reference.get('source', 'none')).strip().lower()
             if source in {'', 'none'}:
-                label = 'awal' if kind == 'first' else 'akhir'
-                return f"Proses {stage_number} wajib memiliki image referensi {label}."
+                if kind == 'last':
+                    # An empty last-frame selector means that this process is
+                    # allowed to end according to its creative prompt.
+                    return None
+                if stage_number == 1:
+                    latest = _find_latest_root_image(scene_dir)
+                    if latest and os.path.isfile(latest):
+                        return None
+                    return (
+                        "Proses 1 tidak memiliki frame awal dan tidak ada gambar lokal "
+                        "yang dapat dipakai sebagai fallback."
+                    )
+                source_stage = stage_number - 1
+                if source_stage < run_start_stage:
+                    previous_frame = generated_frames.get(source_stage)
+                    if not previous_frame or not os.path.isfile(previous_frame):
+                        return (
+                            f"Frame terakhir Proses {source_stage} diperlukan sebagai "
+                            f"frame awal Proses {stage_number}, tetapi file hasilnya belum ada."
+                        )
+                return None
             if source == 'scene':
                 name = str(reference.get('name', '')).strip()
                 path = os.path.join(scene_dir, name) if name else None
@@ -1120,7 +1144,7 @@ def process_scene(scene_dir, server):
         for validation_stage in range(run_start_stage, active_stage_count + 1):
             first_reference = _legacy_or_configured_reference(validation_stage, 'first')
             last_reference = _legacy_or_configured_reference(validation_stage, 'last')
-            if not has_configured_references:
+            if str(first_reference.get('source', 'none') or 'none').strip().lower() in {'', 'none'}:
                 if validation_stage == 1:
                     first_reference = {
                         "source": "scene",
@@ -1142,10 +1166,10 @@ def process_scene(scene_dir, server):
             stage_number = stage_index + 1
             first_reference = _legacy_or_configured_reference(stage_number, 'first')
             last_reference = _legacy_or_configured_reference(stage_number, 'last')
-            # Existing JSON files predate stage_references. Preserve their old
-            # behavior by using the latest scene image for process 1 and the
-            # previous generated frame for later processes.
-            if not has_configured_references:
+            # An empty first-frame selector follows the same user-facing rule
+            # as R2V-Panjang: Process 1 uses the normal I2V image fallback;
+            # later processes use the previous process's generated last frame.
+            if str(first_reference.get('source', 'none') or 'none').strip().lower() in {'', 'none'}:
                 if stage_number == 1:
                     first_reference = {"source": "scene", "name": os.path.basename(_find_latest_root_image(scene_dir) or "")}
                 else:
@@ -1161,15 +1185,12 @@ def process_scene(scene_dir, server):
                 write_log(f"Failed to upload first image for minimax-h3_i2v-panjang process {stage_number}")
                 return False
             last_path = _resolve_reference(last_reference, stage_number, generated_frames)
-            if not last_path:
-                write_log(
-                    f"MiniMax H3 I2V panjang process {stage_number} wajib memiliki image referensi akhir yang valid"
-                )
-                return False
-            last_uploaded_name = _upload_to_comfy(last_path)
-            if not last_uploaded_name:
-                write_log(f"Failed to upload last image for minimax-h3_i2v-panjang process {stage_number}")
-                return False
+            last_uploaded_name = None
+            if last_path:
+                last_uploaded_name = _upload_to_comfy(last_path)
+                if not last_uploaded_name:
+                    write_log(f"Failed to upload last image for minimax-h3_i2v-panjang process {stage_number}")
+                    return False
             raw_entry = prompts[stage_index]
             if not isinstance(raw_entry, dict):
                 write_log(f"Prompt MiniMax H3 I2V panjang ke-{stage_number} tidak valid")
@@ -1180,7 +1201,7 @@ def process_scene(scene_dir, server):
                 stage_prompt = _prepare_minimax_h3_i2v_prompt_for_run(
                     stage_prompt,
                     scene_duration,
-                    include_last_frame=True,
+                    include_last_frame=bool(last_uploaded_name),
                 )
                 i2v_workflow = i2v_build_workflow(
                     stage_prompt,
@@ -1193,7 +1214,7 @@ def process_scene(scene_dir, server):
                 _validate_minimax_h3_i2v_workflow_frame_contract(
                     i2v_workflow,
                     scene_duration,
-                    include_last_frame=True,
+                    include_last_frame=bool(last_uploaded_name),
                 )
             except Exception as e:
                 write_log(f"Failed to build MiniMax H3 I2V panjang stage {stage_index + 1}: {e}")

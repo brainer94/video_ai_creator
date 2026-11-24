@@ -54,6 +54,8 @@ Catatan format prompt:
 - prompt terstruktur MiniMax T2V, I2V, dan R2V memakai `shots[]` dengan bentuk item yang sama;
 - R2V menyimpan `style_opening` dan `shots[]`; aplikasi mengompilasinya menjadi `detailed_description` saat runtime;
 - R2V-Panjang menyimpan empat prompt pada `prompts[]` dan empat konfigurasi `stage_references[]`; maksimal enam gambar global dikirim lebih dulu, lalu frame awal/akhir proses ditambahkan sesuai pilihan, dengan frame terakhir proses sebelumnya dipakai otomatis jika frame awal proses lanjutan kosong, sehingga totalnya maksimal tujuh Picture per proses;
+- I2V-Panjang menyimpan empat prompt pada `prompts[]` dan empat konfigurasi `stage_references[]` dengan bentuk yang sama; frame awal/akhir dipilih melalui dropdown opsional, frame awal kosong memakai fallback runtime, dan instruksi frame tidak disimpan pada prompt JSON;
+- instruksi otomatis tentang frame awal/akhir tidak disimpan pada prompt JSON dan tidak ditampilkan sebagai isi editor; selector frame tetap disimpan sebagai metadata scene, sedangkan adapter runtime menambahkannya pada salinan payload sebelum workflow dikirim;
 - editor prompt interaktif MiniMax berada langsung di dalam tab scene dan tidak menampilkan JSON mentah;
 - tombol `Buat Prompt` memakai Gemini untuk menghasilkan prompt Inggris; runtime hanya memvalidasi dan menserialisasi, tanpa translasi;
 - model Gemini untuk `Buat Prompt` disimpan pada `project_settings.json.prompt_generation.model`;
@@ -111,7 +113,7 @@ Aturan khusus MiniMax H3 untuk tombol `Buat Prompt`:
 - LLM menghasilkan object prompt langsung sesuai mode aktif;
 - field angka, array timeline, identifier, dan token reference dipertahankan oleh validator;
 - schema respons tidak menyertakan field non-prompt seperti `lora_name`, `width`, dan `height`;
-- I2VA wajib memiliki anchor `Picture 1`, sedangkan T2VA tidak boleh memiliki alignment image;
+- I2VA authoring tidak menyimpan field `reference` atau kalimat alignment frame; serializer runtime menambahkan anchor `Picture 1`; T2VA tidak boleh memiliki alignment image;
 - R2V memakai `style_opening` dan `shots[]` dengan item shot yang sama seperti T2VA/I2VA;
 - hasil valid langsung dimuat ke editor dan disimpan pada slot prompt.
 
@@ -120,7 +122,7 @@ Schema prompt MiniMax H3 T2VA/I2VA:
 - `positive_prompt` adalah object JSON langsung dengan `mode`, `shots`, `overall_soundscape`, dan `non_diegetic_music`;
 - setiap item `shots` wajib memiliki `shot_id`, `start`, `end`, `visual`, `action`, `camera`, `dialogue`, dan `diegetic_sound`;
 - `shot_id` berbentuk string seperti `Shot 1`; `start` dan `end` berbentuk angka;
-- I2VA juga wajib memiliki alignment `Picture 1` pada awal prompt; T2VA tidak boleh memiliki alignment image;
+- I2VA JSON authoring hanya menyimpan prompt kreatif dan `shots[]`; alignment `Picture 1`, serta instruksi first/last frame bila diperlukan, dibuat pada salinan runtime; T2VA tidak boleh memiliki alignment image;
 - `remove_sound` adalah boolean teknis di level root prompt dan tidak dikirim ke ComfyUI.
 
 Schema prompt MiniMax H3 R2V:
@@ -192,8 +194,9 @@ Kebutuhan prompt per `scene_type`:
   - durasi scene berupa angka desimal `0.0` sampai `15.0` dengan maksimal 4 angka desimal; durasi `0.0` menghasilkan output minimum 5 frame per stage
   - memakai alur MiniMax H3 I2VA berantai; `continuations` bernilai integer `0` sampai `3`
   - `continuations=0` menjalankan satu stage; nilai `1`, `2`, dan `3` menjalankan masing-masing 2, 3, dan 4 stage
-  - setiap stage aktif wajib memilih image referensi awal dan image referensi akhir; tidak ada opsi untuk meniadakan last frame
-  - frame terakhir setiap stage dipakai sebagai `Picture 1` untuk stage berikutnya
+  - setiap stage memiliki dropdown frame awal dan frame akhir yang opsional; pilihan `(Tanpa Gambar)` memakai fallback runtime
+  - jika frame awal Proses 1 kosong, runtime memakai gambar terbaru di root scene; jika frame awal proses lanjutan kosong, runtime memakai frame terakhir proses sebelumnya
+  - jika frame akhir kosong, stage berjalan tanpa target gambar akhir
   - setiap stage memakai prompt berbeda dari array `prompts` yang berisi tepat 4 prompt
   - prompt stage aktif berupa object I2VA langsung dalam bahasa Inggris
   - hasil semua stage digabung, lalu color match diterapkan pada video gabungan
@@ -1050,9 +1053,9 @@ Scene type: `minimax-h3_i2v`
 Scene type: `minimax-h3_i2v-panjang`
 
 - workflow dasar setiap stage memakai `api_template/minimax_h3_i2v_api.json`; jika `fast_mode` aktif, semua stage memakai `api_template/minimax_fasth3_i2v_api.json`
-- tombol `Buat Prompt` memakai `SCENE-MINIMAX-H3-I2V-PANJANG.md`, `MINIMAX-H3/SKILL.md`, `MINIMAX-H3/references/base-en.txt`, serta mode I2VA dengan instruksi first/last frame
-- setiap stage aktif menerima dua image referensi dalam urutan first frame lalu last frame
-- first frame dan last frame dapat dipilih dari image lokal atau frame terakhir stage sebelumnya; keduanya wajib valid
+- tombol `Buat Prompt` memakai `SCENE-MINIMAX-H3-I2V-PANJANG.md`, `MINIMAX-H3/SKILL.md`, `MINIMAX-H3/references/base-en.txt`, serta mode I2VA; instruksi first/last frame ditambahkan runtime, bukan oleh editor atau JSON authoring
+- setiap stage aktif menerima frame awal dan frame akhir secara opsional; frame awal kosong memakai fallback runtime dan frame akhir kosong tidak membuat input `last_frame`
+- frame awal dan frame akhir dapat dipilih dari image lokal; `(Tanpa Gambar)` pada frame awal proses lanjutan memakai frame terakhir stage sebelumnya secara otomatis, sedangkan `(Tanpa Gambar)` pada frame akhir berarti tidak ada target akhir
 - setelah stage selesai, frame terakhir diekstrak dan di-upload kembali sebagai input stage berikutnya
 - jumlah stage adalah `continuations + 1`, dengan maksimum 4 stage
 - file `minimax_h3_i2v_panjang_prompt.json` mempunyai struktur root:
@@ -1097,7 +1100,9 @@ Scene type: `minimax-h3_i2v-panjang`
 - untuk partial run, segment video dari proses sebelum `run_start_stage` harus sudah ada; file frame terakhir akan digunakan jika ada atau dibuat ulang dari segment tersebut
 - setiap proses yang selesai selalu menyimpan frame terakhirnya agar dapat dipakai sebagai referensi pada run berikutnya
 - setiap item memakai schema I2VA dan `mode: "I2VA"`
-- setiap stage aktif harus memiliki `first` dan `last` pada `stage_references`; nilai `source: "none"` tidak valid
+- `stage_references` tetap berisi `first` dan `last` untuk setiap stage; `source: "none"` valid dan diproses seperti dropdown `(Tanpa Gambar)`
+- jika `first.source` Proses 1 adalah `none`, runtime memakai gambar terbaru di root scene; pada proses berikutnya runtime memakai frame terakhir proses sebelumnya
+- jika `last.source` adalah `none`, runtime tidak menyisipkan frame akhir atau instruksi target akhir
 - FastH3 I2V tetap menginjeksi `last_frame` secara dinamis pada setiap stage lanjutan; FastH3 memakai 8 step dan tidak memakai input Steps normal
 - setiap prompt lanjutan divalidasi secara runtime sebelum stage dijalankan
 - semua segment yang tersedia digabung berurutan menjadi `minimax_h3_i2v_panjang_final.mp4`, terlepas dari nilai `continuations` atau `run_start_stage`
@@ -1119,8 +1124,8 @@ Scene type: `minimax-h3_r2v-panjang`
 - `run_start_stage` hanya boleh melewati proses yang segment dan frame carry-nya sudah tersedia
 - setiap proses aktif memvalidasi prompt Ref2VA dan manifest token sebelum workflow dikirim
 - authoring hanya mengisi `style_opening` dan `shots[]`; `detailed_description` tidak ditulis manual pada JSON authoring
-- sebelum workflow dibuat, adapter menambahkan instruksi frame berdasarkan manifest aktif: `<Picture N> is the initial frame and visual reference for the entire video.`, instruksi `fully_preserved` pada `retention_analysis`, dan `The video begins exactly from <Picture N>.` pada shot pertama jika frame awal tersedia
-- jika frame akhir tersedia, adapter menambahkan `<Picture M> is the final frame and visual reference for the entire video.`, instruksi `fully_preserved` final pada `retention_analysis`, dan `The video ends exactly on <Picture M>.` pada shot terakhir
+- sebelum workflow dibuat, adapter menambahkan instruksi frame berdasarkan manifest aktif pada salinan payload saja: `<Picture N> is the initial frame and visual reference for the entire video.`, instruksi `fully_preserved` pada `retention_analysis`, dan `The video begins exactly from <Picture N>.` pada shot pertama jika frame awal tersedia
+- jika frame akhir tersedia, adapter menambahkan `<Picture M> is the final frame and visual reference for the entire video.`, instruksi `fully_preserved` final pada `retention_analysis`, dan `The video ends exactly on <Picture M>.` pada shot terakhir; semua instruksi tersebut tidak masuk JSON authoring atau UI
 - jika frame awal atau frame akhir tidak tersedia, instruksi anchor yang bersangkutan tidak boleh dibuat; pada proses 2–4, `first.source=none` tetap berarti frame carry otomatis dan nomor Picture-nya mengikuti manifest proses
 - frame awal dan frame akhir tetap merupakan reference Picture biasa: keduanya boleh dipakai pada `subject_definitions`, `retention_analysis`, dan visual shot untuk menjelaskan identitas, komposisi, detail visual, serta kesinambungan; peran temporalnya menambahkan anchor pembuka/target akhir
 - jangan membatasi frame awal hanya pada shot pertama atau frame akhir hanya pada penyebutan terakhir; namun shot pertama harus dimulai dari frame awal yang aktif dan shot terakhir harus mencapai frame akhir yang aktif

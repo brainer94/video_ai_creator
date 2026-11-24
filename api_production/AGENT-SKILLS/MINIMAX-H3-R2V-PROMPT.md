@@ -86,13 +86,12 @@ Struktur reference khusus R2V-Panjang adalah:
 ```
 
 Jika frame awal tersedia, gunakan Picture setelah seluruh reference global
-sebagai frame awal dan tulis tiga kalimat pembuka Ref2VA berikut, dengan `N`
-sebagai jumlah reference image global:
+sebagai referensi visual frame awal. Peran temporalnya dikelola runtime; jangan
+menulis kalimat anchor otomatis pada prompt authoring:
 
 ```text
-<Picture N+1> is the initial frame and visual reference for the entire video.
-<Picture N+1> (initial frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.
-[Shot 1] The video begins exactly from <Picture N+1>.
+<Picture N+1> dapat dipakai sebagai referensi visual biasa pada deskripsi subjek,
+komposisi, atau kesinambungan.
 ```
 
 Jika proses tidak memiliki frame awal, jangan menyatakan bahwa video dimulai
@@ -103,32 +102,24 @@ dan memakai pola pembuka yang sama. Jangan menjelaskan asal frame otomatis
 tersebut kepada LLM dan jangan memakai object atau anchor first-frame I2VA.
 
 Jika frame akhir dipilih, Picture tersebut berada setelah Picture frame awal
-(atau setelah Picture global bila tidak ada frame awal). Awali
-`subject_definitions` dan `retention_analysis` dengan pernyataan final-frame
-untuk Picture tersebut, dan akhiri visual shot terakhir dengan:
-
-`The video ends exactly on <Picture N>.`
-
-Jika frame akhir tidak dipilih, jangan membuat pernyataan final-frame.
+(atau setelah Picture global bila tidak ada frame awal). Gunakan Picture itu
+sebagai referensi visual biasa untuk menggambarkan kondisi akhir. Jangan menulis
+header final-frame, klausa `fully_preserved`, atau kalimat `ends exactly`;
+runtime menambahkannya pada payload sementara.
 
 Jika frame awal terpilih atau otomatis tersedia, Picture tambahan setelah
 reference global adalah frame awal video proses tersebut. Jika terdapat `N`
 gambar global, Picture ini bernomor `N+1`. Ikuti pola Ref2VA S2V untuk
 mendefinisikan perannya, bukan anchor atau object `reference` I2VA. Awali field
-berikut dengan kalimat yang sesuai nomor Picture aktif:
+berikut dengan deskripsi kreatif yang sesuai nomor Picture aktif. Jangan
+menambahkan kalimat anchor otomatis berikut ke JSON authoring:
 
 ```text
 subject_definitions:
-<Picture N+1> is the initial frame and visual reference for the entire video.
-
-retention_analysis:
-<Picture N+1> (initial frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.
-
-detailed_description:
-[Shot 1] The video begins exactly from <Picture N+1>.
+<Subject 1> is [description] from <Picture N+1>.
 ```
 
-Lanjutkan kalimat tersebut dengan detail adegan yang sesuai. Jangan menjelaskan
+Lanjutkan deskripsi tersebut dengan detail adegan yang sesuai. Jangan menjelaskan
 asal Picture dari proses lain kepada LLM dan jangan menambahkan format I2VA.
 
 ## Reference aktif

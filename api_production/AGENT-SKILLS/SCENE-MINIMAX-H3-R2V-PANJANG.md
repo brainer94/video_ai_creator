@@ -29,15 +29,13 @@ Jangan menambahkan `id_new`, `id_old`, `en`, wrapper translasi, atau format prom
 
 `references.audios` maksimal tiga item dan `references.video` maksimal satu item. Token Audio dan Video juga mengikuti urutan array, bukan urutan abjad nama file.
 
-Jika frame awal terpilih atau otomatis tersedia, Picture tambahan setelah reference global diperlakukan sebagai frame awal video. Jika ada `N` gambar global, gunakan token `<Picture N+1>`. Jika frame akhir juga dipilih, gunakan Picture berikutnya sebagai frame akhir dan arahkan shot terakhir untuk berakhir tepat pada Picture tersebut. Definisikan dengan pola Ref2VA seperti S2V:
+Jika frame awal terpilih atau otomatis tersedia, Picture tambahan setelah reference global diperlakukan sebagai referensi visual frame awal proses tersebut. Jika ada `N` gambar global, gunakan token `<Picture N+1>`. Jika frame akhir juga dipilih, gunakan Picture berikutnya sebagai referensi visual kondisi akhir. Anchor temporalnya ditambahkan runtime, bukan pada prompt authoring:
 
 ```text
-<Picture N+1> is the initial frame and visual reference for the entire video.
-<Picture N+1> (initial frame and composition): fully_preserved - preserve the appearance, pose, lighting, background, and framing.
-[Shot 1] The video begins exactly from <Picture N+1>.
+<Subject 1> is the man in the tech armor from <Picture 1> and also appears in <Picture N+1>.
 ```
 
-Kalimat setelah pembuka disesuaikan dengan adegan. Prompt tidak perlu menjelaskan bahwa Picture tersebut berasal dari proses lain, dan tidak memakai object atau anchor first-frame I2VA.
+Prompt tidak perlu menjelaskan bahwa Picture tersebut berasal dari proses lain, dan tidak memakai object atau anchor first-frame I2VA pada JSON authoring.
 
 Jika tidak ada frame awal pada Proses 1, jangan membuat kalimat pembuka yang menyatakan bahwa video dimulai tepat dari Picture tertentu. Jika tidak ada frame akhir, jangan menambahkan pernyataan bahwa video harus berakhir pada Picture tertentu.
 
@@ -45,7 +43,7 @@ Setiap Subject harus menyebutkan Picture sumbernya dan semua Picture tempat Subj
 `<Subject 1> is the man in the tech armor from <Picture 1> and also appears in <Picture N+1>.`
 Jika proses memiliki frame awal, ulangi pola tersebut untuk setiap Subject yang terlihat pada frame awal. ID Subject harus konsisten pada seluruh proses dan jangan membuat kalimat Subject duplikat terpisah.
 
-Frame awal dan frame akhir tetap merupakan reference Picture biasa. Keduanya dapat dipakai pada `subject_definitions`, `retention_analysis`, dan visual shot untuk menjelaskan subjek, komposisi, detail visual, dan kesinambungan. Peran tambahannya adalah sebagai anchor pembuka dan target akhir; shot pertama harus dimulai dari frame awal aktif, sedangkan shot terakhir harus mencapai frame akhir aktif.
+Frame awal dan frame akhir tetap merupakan reference Picture biasa. Keduanya dapat dipakai pada `subject_definitions`, `retention_analysis`, dan visual shot untuk menjelaskan subjek, komposisi, detail visual, dan kesinambungan. Peran temporal sebagai anchor pembuka dan target akhir ditambahkan runtime dan tidak masuk editor atau JSON authoring.
 
 ## Input UI
 

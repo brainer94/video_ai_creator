@@ -12,7 +12,7 @@ Tersedia empat tab proses: `Proses 1`, `Proses 2`, `Proses 3`, dan `Proses 4`.
 2. Tentukan durasi untuk setiap bagian video.
 3. Buka tab `MINIMAX-H3_I2V-PANJANG`.
 4. Tentukan jumlah proses melalui `Jumlah lanjutan`.
-5. Pada setiap proses yang digunakan, pilih `Image awal (wajib)` dan `Image akhir (wajib)`.
+5. Pada setiap proses yang digunakan, pilih `Frame awal (opsional)` dan `Frame akhir (opsional)` bila ingin menetapkan gambar tertentu.
 6. Susun prompt pada setiap proses.
 7. Atur `Run mulai dari tab` jika ingin melanjutkan dari proses tertentu.
 8. Simpan adegan.
@@ -59,44 +59,45 @@ Tab proses yang belum digunakan akan disembunyikan. Prompt dan referensi pada se
 
 ## Image awal dan Image akhir
 
-`Image Awal` adalah gambar yang menjadi frame pertama dari video pada proses tersebut.
+`Frame Awal` adalah gambar yang menjadi frame pertama dari video pada proses tersebut jika dipilih.
 
-`Image Akhir` adalah gambar yang menjadi frame terakhir dari video pada proses tersebut.
+`Frame Akhir` adalah gambar yang menjadi frame terakhir dari video pada proses tersebut jika dipilih.
 
-Dengan demikian, AI sudah diberikan dua kondisi yang harus dicapai:
+Jika kedua frame dipilih, AI diberikan dua kondisi yang harus dicapai:
 
 1. Video dimulai dari `Image Awal`.
 2. Video berakhir pada `Image Akhir`.
 3. AI membuat alur gerakan dan kejadian di antara kedua gambar tersebut berdasarkan prompt.
 4. Prompt digunakan untuk mengarahkan bagaimana perubahan dari gambar awal menuju gambar akhir berlangsung.
 
-Pada setiap proses aktif, `Image awal (wajib)` dan `Image akhir (wajib)` harus dipilih.
+Kedua pilihan memakai dropdown yang berisi `(Tanpa Gambar)` atau gambar pada aset scene. Jika `(Tanpa Gambar)` dipilih, aturan runtime akan menentukan apakah ada gambar pengganti.
 
-### Jumlah pasangan gambar
+### Jumlah pilihan frame
 
-I2V-Panjang dapat menggunakan satu sampai empat proses. Jumlah pasangan gambar mengikuti jumlah proses yang digunakan:
+I2V-Panjang dapat menggunakan satu sampai empat proses. Jumlah pilihan frame mengikuti jumlah proses yang digunakan:
 
-- 1 proses → 1 pasangan `Image Awal` dan `Image Akhir`;
-- 2 proses → 2 pasangan;
-- 3 proses → 3 pasangan;
-- 4 proses → 4 pasangan.
+- 1 proses memakai satu pilihan frame awal dan frame akhir;
+- 2 proses memakai dua pilihan;
+- 3 proses memakai tiga pilihan;
+- 4 proses memakai empat pilihan.
 
 Pilihan dapat berasal dari:
 
+- `(Tanpa Gambar)`;
 - gambar yang tersedia pada aset adegan;
-- frame terakhir dari proses sebelumnya.
+- frame terakhir dari proses sebelumnya untuk frame awal proses lanjutan.
 
 ### Proses 1
 
-Untuk `Proses 1`, pilih gambar awal dan gambar akhir dari aset adegan.
+Untuk `Proses 1`, frame awal dan frame akhir dapat dipilih dari aset scene atau dibiarkan `(Tanpa Gambar)`. Jika frame awal dibiarkan kosong, aplikasi memakai gambar terbaru di folder scene sebagai frame awal internal.
 
 ### Proses 2 sampai Proses 4
 
-Untuk proses berikutnya, gunakan `Frame terakhir Proses N` sebagai `Image awal` jika ingin melanjutkan gerakan dari proses sebelumnya.
+Untuk proses berikutnya, pilih gambar dari aset jika ingin menentukan frame awal secara manual. Jika `Frame awal` dibiarkan `(Tanpa Gambar)`, aplikasi otomatis memakai frame terakhir proses sebelumnya.
 
-Pilihan frame tersebut baru dapat dipakai untuk membuat video setelah proses sebelumnya selesai dibuat. Jika frame belum tersedia, selesaikan proses sebelumnya terlebih dahulu.
+Frame otomatis tersebut baru tersedia setelah proses sebelumnya selesai dibuat. Jika proses dijalankan dari tab lanjutan, hasil proses sebelumnya harus sudah tersedia.
 
-`Image akhir` pada setiap proses tetap harus dipilih. Image akhir dapat berupa gambar dari aset adegan atau frame proses sebelumnya yang tersedia pada daftar.
+`Frame akhir` dapat dipilih dari aset scene. Jika `(Tanpa Gambar)`, video tidak memiliki target gambar akhir dan berakhir mengikuti prompt.
 
 ### Hubungan antarproses
 
@@ -108,8 +109,8 @@ Image Awal  → gambar A
 Image Akhir → gambar B
 
 Proses 2:
-Image Awal  → Frame terakhir Proses 1
-Image Akhir → gambar C
+Frame Awal  → (Tanpa Gambar)
+Frame Akhir → gambar C
 ```
 
 Dengan pengaturan tersebut, Proses 2 dimulai dari hasil akhir Proses 1 dan bergerak menuju gambar C.
@@ -134,7 +135,7 @@ Editor juga memiliki pengaturan suara untuk bagian video tersebut:
 
 ### Bidikan pertama
 
-Bidikan pertama harus dimulai dari `0.00` detik dan menggambarkan kondisi `Image awal` proses tersebut.
+Bidikan pertama harus dimulai dari `0.00` detik dan menggambarkan kondisi frame awal yang tersedia atau fallback runtime proses tersebut.
 
 ### Menambah dan menghapus bidikan
 
@@ -185,9 +186,9 @@ Isi `Perintah kepada LLM` pada proses yang ingin dibuat. Jika hanya satu perinta
 
 Tekan `Buat Prompt` pada salah satu proses. Aplikasi akan membuat prompt secara berurutan mulai dari `Proses 1` sampai proses aktif terakhir. Jadi, jika `Jumlah lanjutan` menghasilkan tiga proses aktif, tombol tersebut membuat prompt untuk Proses 1, Proses 2, dan Proses 3 sekaligus.
 
-Setiap proses dikirim kepada Gemini dengan pasangan referensinya sendiri: `Image awal` menjadi `Picture 1` dan `Image akhir` menjadi `Picture 2`. Gemini menyusun alur perubahan yang berkesinambungan dari gambar awal menuju gambar akhir. Prompt proses berikutnya juga menerima konteks prompt proses sebelumnya agar kesinambungan adegan tetap terjaga.
+Setiap proses dikirim kepada Gemini dengan gambar yang tersedia sebagai konteks visual. Gemini menyusun alur perubahan berdasarkan frame yang dipilih, frame otomatis, atau instruksi adegan. Prompt proses berikutnya juga menerima konteks prompt proses sebelumnya agar kesinambungan adegan tetap terjaga. Instruksi frame dan penomoran Picture untuk workflow dibuat runtime, bukan disimpan dalam editor.
 
-Gemini menggunakan `Deskripsi Adegan` dari tab `Meta`, pengaturan I2V, serta pasangan gambar pada setiap proses. Semua hasil hanya diterapkan setelah seluruh proses aktif berhasil dibuat dan divalidasi.
+Gemini menggunakan `Deskripsi Adegan` dari tab `Meta`, pengaturan I2V, serta gambar yang tersedia pada setiap proses. Semua hasil hanya diterapkan setelah seluruh proses aktif berhasil dibuat dan divalidasi.
 
 Periksa kembali isi setiap editor, terutama kesesuaian bidikan, image awal, dan image akhir masing-masing proses.
 
@@ -230,8 +231,9 @@ Saat adegan dijalankan, aplikasi akan memeriksa durasi, pilihan gambar, prompt s
 Pastikan:
 
 - durasi berada antara 0 sampai 15 detik;
-- setiap proses aktif memiliki `Image awal`;
-- setiap proses aktif memiliki `Image akhir`;
+- pilihan frame awal dan frame akhir boleh `(Tanpa Gambar)`;
+- frame awal Proses 1 akan memakai gambar terbaru di folder scene jika dibiarkan kosong;
+- frame awal proses lanjutan akan memakai frame terakhir proses sebelumnya jika dibiarkan kosong;
 - prompt setiap proses aktif memiliki isi yang lengkap;
 - bidikan pertama setiap proses dimulai dari `0.00` detik;
 - jumlah step berada pada nilai yang diterima aplikasi;
@@ -242,11 +244,11 @@ Pastikan:
 
 1. Pada tab `Meta`, pilih `minimax-h3_i2v-panjang`.
 2. Atur `Jumlah lanjutan` menjadi `1`.
-3. Pada `Proses 1`, pilih gambar awal dan gambar akhir dari aset adegan.
+3. Pada `Proses 1`, pilih frame awal dan frame akhir dari aset adegan atau biarkan `(Tanpa Gambar)`.
 4. Susun prompt `Proses 1` dari awal sampai akhir bagian pertama.
 5. Jalankan atau simpan pengaturan sesuai kebutuhan.
-6. Pada `Proses 2`, pilih `Frame terakhir Proses 1` sebagai image awal.
-7. Pilih image akhir untuk `Proses 2`.
+6. Pada `Proses 2`, biarkan `Frame awal` sebagai `(Tanpa Gambar)` agar frame terakhir Proses 1 dipakai otomatis.
+7. Pilih `Frame akhir` untuk `Proses 2` atau biarkan `(Tanpa Gambar)`.
 8. Susun prompt `Proses 2` agar melanjutkan adegan dengan wajar.
 9. Periksa kedua proses, simpan, lalu jalankan rangkaiannya.
 
